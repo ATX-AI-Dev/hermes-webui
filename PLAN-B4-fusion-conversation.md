@@ -128,9 +128,17 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
 
 ## 6. Prochaines étapes (après validation live du 04/09/2026)
 
-1. **Généraliser** : remplacer « Open thread » par « Continuer » comme point d'entrée unique
-   d'un bot dans le panneau Bots (un seul bouton, plus de choix entre les deux). « Fil
-   inter-bots » (lecture seule) reste utile comme aperçu rapide sans quitter le panneau.
+1. **✅ Fait le 04/09/2026 (session suivante)** : `continue_bot_chat()` (ex-
+   `continue_bot_chat_prototype`, renommé — plus aucune trace de « prototype » dans le code,
+   l'i18n ou l'UI) est désormais le point d'entrée unique de la ligne d'un bot dans le panneau
+   Bots dès qu'il a une Bot Chat (`has_bot_chat`) : bouton « Continuer », plus de bouton
+   « Open thread » à côté. « Open thread » ne reste que comme repli pour les bots sans Bot
+   Chat. « Fil inter-bots » (lecture seule) reste disponible en accordéon comme aperçu rapide.
+   Le backend (`api/bot_mesh.py::continue_bot_chat`) était déjà générique par profil — rien à
+   changer côté logique d'import, seule l'UI/l'API restreignaient l'usage à un test manuel sur
+   `lancelot`. **Non encore fait** : validation live sur `.178` avec un bot autre que
+   `lancelot` (idéalement un bot « à la demande », pas à gateway permanent, pour couvrir le cas
+   le plus différent) — voir points 3 et 4 ci-dessous, toujours ouverts.
 2. **Rendu riche par type de tour** dans la vraie vue de chat (pas seulement mon viewer B3) :
    les tours `tool_name=message_agent` doivent s'afficher avec la carte dédiée déjà conçue en
    B3b (cible, message, état), pas comme un tool-call générique — ça veut dire étendre le
@@ -141,10 +149,10 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
 4. **Robustesse du verrou « live owner »** : que doit voir Ludo si WebUI tente d'écrire pendant
    qu'un cron/CLI tient déjà la session (collision réelle, pas juste observée dans l'historique) ?
    Un message d'erreur clair côté WebUI, pas un échec silencieux.
-5. **Nettoyage** : le prototype (`api/bot_mesh.py::continue_bot_chat_prototype`,
-   `POST /api/bot-chat/continue`) est fonctionnel mais nommé/documenté comme un probe — à
-   renommer/consolider une fois la portée définitive actée (retrait du mot « prototype » du
-   bouton, de l'i18n, etc.).
+5. **✅ Fait le 04/09/2026** : renommage complet (`continue_bot_chat_prototype` →
+   `continue_bot_chat`, retrait de « (prototype) » du libellé i18n FR/EN et du `title` du
+   bouton, fichier de tests renommé `test_bot_mesh_continue.py`). `POST /api/bot-chat/continue`
+   ne change pas de chemin.
 
 ## 7. Ce qui ne change pas
 

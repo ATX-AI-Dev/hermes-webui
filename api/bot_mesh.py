@@ -25,18 +25,23 @@ profile's own store. Earlier revisions of this module read only that root
 file and silently missed every named profile's Bot Chat. Every lookup here
 now resolves the *target profile's own* Hermes home first.
 
-Nothing here writes to state.db. Driving a Bot Chat turn from WebUI (actually
-sending a message_agent call from the UI) is a separate, not-yet-built
-capability gated on a live check — see PLAN-palier-B.md section 3.
+Nothing here writes to state.db, except ``continue_bot_chat()`` below.
 
-``continue_bot_chat_prototype()`` (2026-09-04, B4 prototype) is the one
-exception: an experimental, scoped probe for PLAN-B4-fusion-conversation.md
-that DOES write — it imports the Bot Chat into WebUI's own session store via
-the existing CLI-session bridge (``api.models.import_cli_session``, the same
-mechanism behind "click a CLI-badged session to import it and reply
-normally"). Its only job is to answer one question empirically: does a WebUI
-turn continuing this exact session_id still get ``message_agent`` injected?
-Until that is confirmed, treat it as a probe, not a shipped feature.
+``continue_bot_chat()`` (2026-09-04, B4; generalized to all profiles
+2026-09-04) is the one exception that DOES write — it imports the Bot Chat
+into WebUI's own session store via the existing CLI-session bridge
+(``api.models.import_cli_session``, the same mechanism behind "click a
+CLI-badged session to import it and reply normally"). This is now the
+standard entry point for continuing any profile's Bot Chat from WebUI: a
+WebUI turn that replies in the imported session gets ``message_agent``
+injected exactly as a native turn would, confirmed live on ``.178`` with
+``lancelot`` on 2026-09-04 (PLAN-B4-fusion-conversation.md). Not yet verified
+per-profile: whether Telegram/cron turns land in this same ``session_id`` for
+every bot, or only ones with a permanent gateway (see that plan's §3.3) — and
+the agent-side session-exclusivity lock ("only one surface at a time may run
+a session") has been observed once between two CLI surfaces but never
+reproduced with WebUI; a collision here would currently surface as whatever
+error the in-process agent call raises, not a dedicated message.
 """
 
 from __future__ import annotations
@@ -165,11 +170,14 @@ def _relay_ack(ack_raw: str | None) -> tuple[bool | None, str | None]:
     return bool(ok), ack.get("error")
 
 
-def continue_bot_chat_prototype(profile: str) -> dict:
-    """B4 prototype (see PLAN-B4-fusion-conversation.md) — import the Bot Chat
-    into WebUI's own session store, keyed by its REAL session_id, so replying
-    in WebUI continues that exact agent-native session instead of starting a
-    fresh WebUI-only one.
+def continue_bot_chat(profile: str) -> dict:
+    """Import a profile's Bot Chat into WebUI's own session store, keyed by
+    its REAL session_id, so replying in WebUI continues that exact
+    agent-native session instead of starting a fresh WebUI-only one.
+
+    This is the single entry point for "continuing" any bot from the Bots
+    panel — see PLAN-B4-fusion-conversation.md. Works for any profile with a
+    Bot Chat session; nothing here is specific to a particular bot.
 
     Returns ``{"ok": True, "session_id": ...}`` or ``{"ok": False, "error": ...}``.
     Never raises. This does not touch state.db directly — it delegates the
@@ -198,7 +206,7 @@ def continue_bot_chat_prototype(profile: str) -> dict:
             updated_at=session.get("last_activity_at"),
         )
     except Exception as exc:
-        logger.exception("bot_mesh: continue_bot_chat_prototype failed for %s", profile)
+        logger.exception("bot_mesh: continue_bot_chat failed for %s", profile)
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     return {"ok": True, "session_id": sid}
 

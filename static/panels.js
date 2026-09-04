@@ -6712,13 +6712,15 @@ async function loadBotsPanel(fresh) {
       const chatBtn = bot.has_bot_chat
         ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="chat" aria-expanded="false">${esc(t('bots_thread'))}</button>`
         : '';
-      // B4 prototype (PLAN-B4-fusion-conversation.md): "Continuer" imports the
+      // B4 (PLAN-B4-fusion-conversation.md): "Continuer" imports the bot's
       // real Bot Chat session into WebUI and opens it, so replying continues
-      // THAT session instead of a fresh WebUI-only one. Experimental — only
-      // meaningful where has_bot_chat is true.
-      const continueBtn = bot.has_bot_chat
-        ? `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="continue" title="Prototype B4">${esc(t('bots_continue'))}</button>`
-        : '';
+      // THAT session (message_agent included) instead of a fresh WebUI-only
+      // one. This is now the single entry point for bots with a Bot Chat;
+      // "Open thread" remains only as a fallback for bots that don't have
+      // one yet (has_bot_chat === false).
+      const primaryBtn = bot.has_bot_chat
+        ? `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="continue">${esc(t('bots_continue'))}</button>`
+        : `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>`;
       html += `<div class="bots-row${child}">
         <span class="bots-row-id">
           <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
@@ -6727,9 +6729,8 @@ async function loadBotsPanel(fresh) {
         </span>
         <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
         <span class="bots-actions">
-          <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>
+          ${primaryBtn}
           ${chatBtn}
-          ${continueBtn}
           ${gwBtn}
         </span>
       </div>`;

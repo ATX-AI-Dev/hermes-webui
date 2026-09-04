@@ -16747,18 +16747,18 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path in {"/api/gateway/start", "/api/gateway/stop", "/api/gateway/restart"}:
         return _handle_gateway_lifecycle(handler, parsed.path.rsplit("/", 1)[-1], body)
 
-    # ── Bot Chat continue (POST) — B4 prototype, see PLAN-B4-fusion-conversation.md ──
+    # ── Bot Chat continue (POST) — see PLAN-B4-fusion-conversation.md ──
     if parsed.path == "/api/bot-chat/continue":
         try:
-            from api.bot_mesh import continue_bot_chat_prototype
+            from api.bot_mesh import continue_bot_chat
             from api.profiles import _PROFILE_ID_RE
             _bcc_profile = str((body or {}).get("profile") or "").strip()
             if not _bcc_profile or not _PROFILE_ID_RE.fullmatch(_bcc_profile):
                 return bad(handler, "invalid profile", 400)
-            result = continue_bot_chat_prototype(_bcc_profile)
+            result = continue_bot_chat(_bcc_profile)
             return j(handler, result, status=200 if result.get("ok") else 400)
         except Exception as exc:
-            logger.exception("bot-chat continue prototype failed")
+            logger.exception("bot-chat continue failed")
             return bad(handler, _sanitize_error(exc), status=500)
 
     # ── Profile API (POST) ──
