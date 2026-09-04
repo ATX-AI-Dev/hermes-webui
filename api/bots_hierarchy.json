@@ -1,0 +1,31 @@
+{
+  "_comment": "Fork-local bot hierarchy for the Bots panel (palier B / B2). Maps Hermes profile names to their place in the pilote/managers/bots org. Profiles not listed here still appear, under branch 'autre'. An operator copy at <HERMES_HOME>/webui/bots_hierarchy.json overrides this bundled file when present.",
+  "branches": [
+    { "id": "pilote", "label": "Pilote du royaume" },
+    { "id": "conseil", "label": "Conseil — hors chaîne d'exécution" },
+    { "id": "pro", "label": "Branche Pro" },
+    { "id": "perso", "label": "Branche Perso" },
+    { "id": "interne", "label": "Profil interne" },
+    { "id": "autre", "label": "Autres profils" }
+  ],
+  "profiles": {
+    "roi-arthur":     { "branch": "pilote",  "role": "Roi Arthur — Pilote du royaume", "order": 0, "permanent_gateway": true },
+    "merlin":         { "branch": "conseil", "role": "Merlin — Compagnon d'Idéation", "order": 1, "permanent_gateway": true },
+    "lancelot":       { "branch": "pro", "role": "Manager Pro — Orchestrateur", "order": 10, "manager": true, "permanent_gateway": true },
+    "pere-blaise":    { "branch": "pro", "parent": "lancelot", "role": "Gardien du Vault", "order": 11, "tag": "intendance" },
+    "bohorth":        { "branch": "pro", "parent": "lancelot", "role": "Sentinelle Infra", "order": 12 },
+    "perceval":       { "branch": "pro", "parent": "lancelot", "role": "Ordonnateur Code", "order": 13 },
+    "yvain":          { "branch": "pro", "parent": "perceval", "role": "VibeCoder Antigravity", "order": 14 },
+    "gauvain":        { "branch": "pro", "parent": "perceval", "role": "VibeCoder Claude Code", "order": 15 },
+    "venec":          { "branch": "pro", "parent": "lancelot", "role": "Ombre Vigilante", "order": 16 },
+    "maitre-darmes":  { "branch": "pro", "parent": "lancelot", "role": "Pédagogue Procédures", "order": 17, "tag": "intendance" },
+    "leodagan":       { "branch": "pro", "parent": "lancelot", "role": "Rapporteur du Roi", "order": 18, "tag": "intendance" },
+    "le-repurgateur": { "branch": "pro", "parent": "lancelot", "role": "Inquisiteur Qualité", "order": 19 },
+    "guenievre":      { "branch": "perso", "role": "Manager de la branche Perso", "order": 30, "manager": true, "permanent_gateway": true },
+    "angharad":       { "branch": "perso", "parent": "guenievre", "role": "La Vigie du Foyer — domotique", "order": 31 },
+    "sefriane":       { "branch": "perso", "parent": "guenievre", "role": "L'Or et le Bon Sens — finances", "order": 32 },
+    "demetra":        { "branch": "perso", "parent": "guenievre", "role": "Agenda, tâches, routines", "order": 33 },
+    "meghana":        { "branch": "perso", "parent": "guenievre", "role": "Veille et apprentissage", "order": 34 },
+    "default":        { "branch": "interne", "role": "Chat standard — jamais utilisé comme bot", "order": 40, "permanent_gateway": true }
+  }
+}

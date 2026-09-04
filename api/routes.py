@@ -14726,6 +14726,16 @@ def handle_get(handler, parsed) -> bool:
         return _handle_memory_read(handler, parsed)
 
     # ── Profile API (GET) ──
+    # ── Bots overview (GET) — palier B / B2 ──
+    if parsed.path == "/api/bots":
+        try:
+            from api.bots_overview import build_bots_overview
+            _bots_use_cache = (parse_qs(parsed.query).get("fresh", ["0"])[0] or "0") not in ("1", "true", "yes")
+            return j(handler, build_bots_overview(use_cache=_bots_use_cache))
+        except Exception as exc:
+            logger.exception("bots overview failed")
+            return bad(handler, _sanitize_error(exc), status=500)
+
     if parsed.path == "/api/profiles":
         from api import profiles as profiles_api
         diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger, print_fn=getattr(handler, '_safe_webui_print', None))
