@@ -16990,6 +16990,14 @@ function renderMessages(options){
     }
     const displayContent=isUser?_stripAttachedFilesMarkerForDisplay(_stripWorkspaceDisplayPrefix(content)):content;
     const rowDisplayContent=displayContent;
+    // Bot Chat incoming relay turns (04/09/2026 follow-up to the B4 outgoing
+    // message_agent tool-card): the agent delivers an incoming message_agent
+    // as plain user-role text with a fixed "Message from 🤖 <handle> (@<handle>): "
+    // prefix (see tools/bot_mode_dm.py on the agent side, sender_handle used
+    // for both slots) -- not a tool call, so buildToolCard never sees it.
+    // Give it the same relay treatment as the outgoing card (icon + sender
+    // label) instead of rendering the raw "Message from ..." prefix as plain text.
+    const relayInbound=isUser?_relayInboundMatch(displayContent):null;
     if(!isUser&&_isAssistantEmptyPlaceholderContent(m, displayContent)){
       content='';
     }
@@ -17013,7 +17021,8 @@ function renderMessages(options){
         return _renderAttachmentHtml(fname,fileUrl);
       }).join('')}</div>`;
     }
-    let bodyHtml = _getCachedRender(displayContent, isUser);
+    let bodyHtml = _getCachedRender(relayInbound?relayInbound.message:displayContent, isUser);
+    if(relayInbound) bodyHtml=_relayInboundHeaderHtml(relayInbound.from)+bodyHtml;
     // Message-level media snapshots: settled assistant messages carry a
     // path→digest map (written at settle time) freezing the file bytes the
     // turn emitted. Stamp it AFTER the text-keyed render cache so identical
@@ -17137,8 +17146,9 @@ function renderMessages(options){
       if(row&&(!row.classList.contains('msg-row')||row.classList.contains('assistant-turn'))) row=null;
       const newRawText=String(displayContent).trim();
       const nextRowHtml=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
+      const userRowClassName=relayInbound?'msg-row relay-inbound-row':'msg-row';
       if(row){
-        row.className='msg-row';
+        row.className=userRowClassName;
         row.id=_userMessageDomId(rawIdx);
         row.dataset.msgIdx=rawIdx;
         row.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
@@ -17151,7 +17161,7 @@ function renderMessages(options){
         }
       }else{
         row=document.createElement('div');
-        row.className='msg-row';
+        row.className=userRowClassName;
         row.id=_userMessageDomId(rawIdx);
         row.dataset.msgIdx=rawIdx;
         row.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
@@ -18315,6 +18325,21 @@ function _toolPathBasename(value){
   const normalized=text.replace(/[\\/]+$/,'');
   const parts=normalized.split(/[\\/]+/);
   return parts.pop()||normalized;
+}
+// Matches the fixed prefix hermes-agent's bot_mode_dm.py builds for an
+// incoming message_agent delivery: `Message from 🤖 {handle} (@{handle}): {body}`
+// (sender_handle used for both slots -- see tools/bot_mode_dm.py on the agent
+// side). Only ever produced by the agent itself, never typed by a human, so
+// matching it exactly (not loosely) is deliberate: a real user message that
+// happens to start similarly should render as plain text, not as a relay card.
+const _RELAY_INBOUND_RE=/^Message from 🤖 ([a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?) \(@\1\): ([\s\S]*)$/;
+function _relayInboundMatch(text){
+  const m=_RELAY_INBOUND_RE.exec(String(text||''));
+  if(!m) return null;
+  return {from:m[1], message:m[2]};
+}
+function _relayInboundHeaderHtml(fromHandle){
+  return `<div class="relay-inbound-header">${li('message-square',13)}<span>${esc(t('relay_inbound_from'))} <strong>@${esc(fromHandle)}</strong></span></div>`;
 }
 function _toolActionKind(tc){
   const n=String(tc&&tc.name||'').toLowerCase().replace(/[^a-z0-9]+/g,'_');

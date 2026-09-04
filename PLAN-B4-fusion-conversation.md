@@ -192,11 +192,24 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    `test_issue4926_shell_full_command.py`) : classification `relay`, extraction cible/message,
    nom affiché, statut d'ack (sent/erreur/absent).
 
-   **Non fait** : les tours entrants « Message from X (@x): ... » (texte utilisateur simple,
-   pas un tool-call) n'ont pas de traitement visuel dédié — ils restent des bulles de texte
-   normales. Les captures Hermes Desktop du §1 montrent aussi des cartes « Message from X » /
-   « Replied to X » dépliables pour CES tours-là ; ce serait un chantier distinct (toucher le
-   rendu des bulles de texte utilisateur, pas seulement les tool-cards), pas engagé ici.
+   **✅ Fait le 04/09/2026 (session suivante)** : les tours entrants « Message from X (@x): ... »
+   (texte utilisateur simple, pas un tool-call — préfixe fixe construit par
+   `tools/bot_mode_dm.py` côté agent, source lue directement sur `.178` pour avoir le format
+   exact) ont maintenant leur propre traitement dans `renderMessages()` (`static/ui.js`) :
+   `_relayInboundMatch` détecte le préfixe (regex stricte, y compris la contrainte que le
+   handle est identique des deux côtés — jamais de faux positif sur un vrai message humain),
+   `_relayInboundHeaderHtml` construit l'en-tête (icône `message-square` + « Message from
+   @<bot> », même traitement visuel que la carte sortante du point précédent). Branché
+   directement dans le pipeline existant (`bodyHtml` + classe de ligne), pas une branche
+   séparée — réutilise 100% du rendu/cache/virtualisation déjà en place. Clé i18n
+   `relay_inbound_from` (`en`+`fr`, fallback anglais pour les autres locales).
+
+   **Validé en live** sur `.178` (instance jetable, port 8796) contre la vraie Bot Chat de
+   `pere-blaise` (tour entrant réel de `lancelot` déjà présent) : carte affichée correctement.
+   9 tests (`tests/test_relay_inbound_message_card.py`, même pattern que
+   `test_message_agent_tool_card.py`) + `tests/test_anchor_fallback_ownership.py` mis à jour
+   (stub manquant pour le nouveau helper, régression détectée et corrigée avant de considérer
+   le travail fini).
 3. **✅ Tranché le 04/09/2026 (session suivante)**, en lisant directement les `state.db` et
    `hermes -p <profil> cron list --all` des 5 profils à gateway permanent
    (`default`/`lancelot`/`guenievre`/`roi-arthur`/`merlin`) + 3 bots à la demande

@@ -170,11 +170,34 @@ service redémarré, `/health` `ok`) + robustesse du verrou d'exclusivité (WebU
 maintenant au bail agent-side, voir §1 point 4 et §3 point 4) + tour complet réel sur un bot à
 la demande (`pere-blaise`, voir §3 point 5 — aucun gateway à démarrer, confirmé au niveau
 `state.db`, réception côté `lancelot` en ~2s) + **rafraîchissement live des Bot Chat** (voir
-ci-dessous). **Un seul item reste ouvert** :
+plus bas) + **rendu des tours entrants « Message from X »** (voir plus bas — dernier item
+ouvert de B4, maintenant fait). **Plus aucun item ouvert côté B4.**
 
-1. **Rendu des tours entrants « Message from X »** (PLAN-B4 §6 point 2, non fait) : chantier
-   distinct du rendu riche des tool-cards — toucherait le rendu des bulles de texte utilisateur
-   normales, pas seulement `buildToolCard`. Pas chiffré.
+### Rendu des tours entrants « Message from X » (04/09/2026, session suivante)
+
+Dernier point ouvert de PLAN-B4-fusion-conversation.md §6 point 2 : une livraison
+`message_agent` entrante s'écrit comme un simple message `role='user'` avec un préfixe fixe
+construit par l'agent (`tools/bot_mode_dm.py`, source lue directement sur `.178`) :
+`f"Message from 🤖 {sender_handle} (@{sender_handle}): {body}"` (même handle des deux côtés).
+Comme ce n'est pas un tool-call, `buildToolCard` (le mécanisme du rendu riche sortant, voir
+plus haut) ne le voit jamais — le préfixe brut s'affichait comme texte normal.
+
+**Fait** : `static/ui.js` — `_relayInboundMatch` (regex stricte sur le préfixe exact, y compris
+la contrainte handle identique des deux côtés — un vrai message humain qui ressemblerait
+vaguement au préfixe ne doit jamais être requalifié) + `_relayInboundHeaderHtml` (icône
+`message-square` + libellé "Message from @<bot>", même traitement visuel que la carte sortante).
+Branché directement dans `renderMessages()` (pas une branche séparée façon `process_wakeup` —
+juste `bodyHtml` et la classe de la ligne, réutilise 100% du pipeline de rendu/cache/
+virtualisation existant). Clé i18n `relay_inbound_from` ajoutée (`en` + `fr` ; les autres
+locales retombent sur l'anglais via le mécanisme de fallback existant de `t()`).
+
+**Validé en live** sur `.178` (instance jetable, port 8796) contre la vraie Bot Chat de
+`pere-blaise`, qui contenait déjà un tour entrant réel de `lancelot` — carte affichée
+correctement (icône, "MESSAGE FROM @LANCELOT", corps du message séparé). 9 tests
+(`tests/test_relay_inbound_message_card.py`, même pattern que
+`test_message_agent_tool_card.py`). Un test existant
+(`tests/test_anchor_fallback_ownership.py`) a dû être mis à jour pour stubber le nouveau
+helper — corrigé, régression comprise et fixée avant de considérer le travail terminé.
 
 ### Rafraîchissement live des Bot Chat (04/09/2026, session suivante)
 
