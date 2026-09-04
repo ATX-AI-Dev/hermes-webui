@@ -136,9 +136,32 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    Chat. « Fil inter-bots » (lecture seule) reste disponible en accordéon comme aperçu rapide.
    Le backend (`api/bot_mesh.py::continue_bot_chat`) était déjà générique par profil — rien à
    changer côté logique d'import, seule l'UI/l'API restreignaient l'usage à un test manuel sur
-   `lancelot`. **Non encore fait** : validation live sur `.178` avec un bot autre que
-   `lancelot` (idéalement un bot « à la demande », pas à gateway permanent, pour couvrir le cas
-   le plus différent) — voir points 3 et 4 ci-dessous, toujours ouverts.
+   `lancelot`.
+
+   **✅ Validation live faite le 04/09/2026 (session suivante), en deux temps :**
+
+   - **Import seul** (lecture `state.db` + écriture sidecar WebUI, sans effet sur l'agent) testé
+     sur clone jetable pour **7 profils** : `lancelot`, `pere-blaise`, `yvain`, `gauvain`,
+     `guenievre`, `roi-arthur`, `venec` — mélange gateway permanent / à la demande, 10 à 183
+     messages par Bot Chat. **7/7 réussis**, aucune exception.
+   - **Tour complet réel** (WebUI → tour agent → `message_agent` → réception par le
+     destinataire), sur instance jetable dédiée (`/tmp/webui-b4-live`, port 8793, tunnel SSH,
+     auth désactivée car loopback-only) pilotée via un vrai navigateur :
+     - **`lancelot` → `roi-arthur`** (Manager Pro → Pilote) : tour continue bien la session
+       réelle (`message_count` 755→759), `message_agent` appelé, dispatché à `@roi-arthur`,
+       réponse reçue et confirmée dans le même fil (« Majesté, test B4 validé avec succès »).
+     - **`guenievre` → `roi-arthur`** (Manager Perso → Pilote) : idem (`message_count` →97 côté
+       guenievre), `roi-arthur` a bien reçu « Message from 🤖 guenievre (@guenievre)... »
+       (`message_count` →135 côté roi-arthur, confirmé en lisant directement les deux
+       `state.db`).
+     - Les deux arêtes respectent la hiérarchie (`infra/hermes-bots-hierarchie.md` —
+       « Managers vers Pilote »), aucune traversée Pro/Perso.
+   - Nettoyage fait après coup : instance jetable, clone, tunnel SSH et anciens résidus de la
+     session précédente (`/tmp/webui-b4`, port 8791) tous supprimés/arrêtés.
+
+   **Toujours non couvert** : un bot « à la demande » (gateway arrêté) pour le tour complet —
+   seul l'import a été testé pour ceux-là, pas l'envoi d'un vrai tour (aurait exigé de démarrer
+   son gateway). Voir points 3 et 4 ci-dessous, toujours ouverts.
 2. **Rendu riche par type de tour** dans la vraie vue de chat (pas seulement mon viewer B3) :
    les tours `tool_name=message_agent` doivent s'afficher avec la carte dédiée déjà conçue en
    B3b (cible, message, état), pas comme un tool-call générique — ça veut dire étendre le
