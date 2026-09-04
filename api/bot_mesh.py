@@ -28,6 +28,15 @@ now resolves the *target profile's own* Hermes home first.
 Nothing here writes to state.db. Driving a Bot Chat turn from WebUI (actually
 sending a message_agent call from the UI) is a separate, not-yet-built
 capability gated on a live check — see PLAN-palier-B.md section 3.
+
+``continue_bot_chat_prototype()`` (2026-09-04, B4 prototype) is the one
+exception: an experimental, scoped probe for PLAN-B4-fusion-conversation.md
+that DOES write — it imports the Bot Chat into WebUI's own session store via
+the existing CLI-session bridge (``api.models.import_cli_session``, the same
+mechanism behind "click a CLI-badged session to import it and reply
+normally"). Its only job is to answer one question empirically: does a WebUI
+turn continuing this exact session_id still get ``message_agent`` injected?
+Until that is confirmed, treat it as a probe, not a shipped feature.
 """
 
 from __future__ import annotations
@@ -154,6 +163,44 @@ def _relay_ack(ack_raw: str | None) -> tuple[bool | None, str | None]:
         return None, None
     ok = ack.get("ok") if "ok" in ack else ("error" not in ack)
     return bool(ok), ack.get("error")
+
+
+def continue_bot_chat_prototype(profile: str) -> dict:
+    """B4 prototype (see PLAN-B4-fusion-conversation.md) — import the Bot Chat
+    into WebUI's own session store, keyed by its REAL session_id, so replying
+    in WebUI continues that exact agent-native session instead of starting a
+    fresh WebUI-only one.
+
+    Returns ``{"ok": True, "session_id": ...}`` or ``{"ok": False, "error": ...}``.
+    Never raises. This does not touch state.db directly — it delegates the
+    message-shape conversion to ``api.models.get_cli_session_messages`` (the
+    same reader the existing CLI-session bridge uses) and the WebUI-side write
+    to ``api.models.import_cli_session`` (the same writer behind "import a
+    CLI session and reply normally"). Both already accept an explicit
+    ``profile`` and resolve that profile's own state.db.
+    """
+    profile = _normalize_profile(profile)
+    session = find_bot_chat_session(profile)
+    if session is None:
+        return {"ok": False, "error": f"No Bot Chat session found for profile {profile!r}."}
+    sid = session["session_id"]
+    try:
+        from api.models import get_cli_session_messages, import_cli_session
+        msgs = get_cli_session_messages(sid, profile=profile)
+        if not msgs:
+            return {"ok": False, "error": "Bot Chat session has no readable messages."}
+        import_cli_session(
+            sid,
+            "Bot Chat",
+            msgs,
+            model="unknown",
+            profile=profile,
+            updated_at=session.get("last_activity_at"),
+        )
+    except Exception as exc:
+        logger.exception("bot_mesh: continue_bot_chat_prototype failed for %s", profile)
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": True, "session_id": sid}
 
 
 def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:

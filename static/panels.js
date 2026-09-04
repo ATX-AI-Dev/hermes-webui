@@ -6712,6 +6712,13 @@ async function loadBotsPanel(fresh) {
       const chatBtn = bot.has_bot_chat
         ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="chat" aria-expanded="false">${esc(t('bots_thread'))}</button>`
         : '';
+      // B4 prototype (PLAN-B4-fusion-conversation.md): "Continuer" imports the
+      // real Bot Chat session into WebUI and opens it, so replying continues
+      // THAT session instead of a fresh WebUI-only one. Experimental — only
+      // meaningful where has_bot_chat is true.
+      const continueBtn = bot.has_bot_chat
+        ? `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="continue" title="Prototype B4">${esc(t('bots_continue'))}</button>`
+        : '';
       html += `<div class="bots-row${child}">
         <span class="bots-row-id">
           <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
@@ -6722,6 +6729,7 @@ async function loadBotsPanel(fresh) {
         <span class="bots-actions">
           <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>
           ${chatBtn}
+          ${continueBtn}
           ${gwBtn}
         </span>
       </div>`;
@@ -6810,6 +6818,24 @@ async function _botsOnClick(ev) {
   }
   if (act === 'chat') {
     await _botsToggleChat(bot, btn);
+    return;
+  }
+  if (act === 'continue') {
+    btn.disabled = true;
+    try {
+      const r = await api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
+      if (!r || r.ok === false) {
+        if (typeof showToast === 'function') showToast((r && r.error) || t('bots_action_failed'));
+        return;
+      }
+      if (typeof switchToProfile === 'function') await switchToProfile(bot);
+      if (typeof switchPanel === 'function') switchPanel('chat');
+      if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
+    } finally {
+      btn.disabled = false;
+    }
     return;
   }
   if ((act === 'start' || act === 'stop') && !_botsPanelBusy) {
