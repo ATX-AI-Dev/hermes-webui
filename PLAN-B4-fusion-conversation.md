@@ -188,9 +188,33 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    normales. Les captures Hermes Desktop du §1 montrent aussi des cartes « Message from X » /
    « Replied to X » dépliables pour CES tours-là ; ce serait un chantier distinct (toucher le
    rendu des bulles de texte utilisateur, pas seulement les tool-cards), pas engagé ici.
-3. **§3.3 à vérifier** : Telegram et les tours cron écrivent-ils dans ce même `session_id` pour
-   tous les bots, ou seulement pour certains (le cas testé, `lancelot`, a un cron de rattrapage
-   dédié — les bots sans gateway permanent n'ont peut-être pas cette propriété) ?
+3. **✅ Tranché le 04/09/2026 (session suivante)**, en lisant directement les `state.db` et
+   `hermes -p <profil> cron list --all` des 5 profils à gateway permanent
+   (`default`/`lancelot`/`guenievre`/`roi-arthur`/`merlin`) + 3 bots à la demande
+   (`pere-blaise`/`bohorth`/`venec`) :
+
+   - **Cron : OUI**, écrit bien dans la vraie session Bot Chat — mais **pas** via le mécanisme
+     documenté dans le vault (`ping-rattrapage-<profil>`, mode agent complet). Ce job **n'existe
+     plus du tout** (absent de `cron list --all`, donc supprimé, pas juste désactivé) : il a été
+     remplacé par un job différent, actif sur les 5 profils, `Name: relais-message-agent-<profil>`,
+     `Deliver: bot-chat:<profil>`, `Mode: no-agent (script stdout delivered directly)`,
+     `Script: relay_message_agent.py`. Confirmé au niveau base (pas juste affiché) : les lignes
+     `[Cronjob "relais-message-agent-lancelot" output — ...]` sont bien des rows `role='user'`
+     dans la session `id='20260901_070436_73676c'` (`title='Bot Chat'`, `hidden=1`) de lancelot.
+   - **Découverte annexe** : quand l'ANCIEN job `ping-rattrapage-<profil>` était encore actif
+     (traces historiques du 02-03/09), il créait en réalité **sa propre session séparée à
+     chaque exécution** (`source='cron'`, `id` du type `cron_<jobid>_<horodatage>`, hors Bot
+     Chat — 16 à 93 sessions historiques accumulées par profil) : il n'écrivait **pas** dans la
+     Bot Chat, contrairement à ce que documente `infra/hermes-bots-hierarchie.md`. Le nouveau
+     mécanisme (`relais-message-agent-*`), lui, y écrit vraiment. **Le vault est donc obsolète
+     sur ce point** (noms de jobs, IDs, et description du comportement) — signalé à Ludo,
+     non corrigé par l'agent (règle CLAUDE.md : signaler, pas modifier le vault soi-même).
+   - **Telegram : NON**, jamais dans la Bot Chat — chaque conversation Telegram crée sa propre
+     session (`source='telegram'`, titrée par sujet), confirmé sur les 4 profils qui en ont une
+     configurée.
+   - **Bots sans gateway permanent** (`pere-blaise`, `bohorth`, `venec` vérifiés) : une seule
+     session au total — la Bot Chat elle-même. Pas de cron (pas de scheduler sans gateway), pas
+     de Telegram. Cohérent avec leur statut « à la demande ».
 4. **Robustesse du verrou « live owner »** : que doit voir Ludo si WebUI tente d'écrire pendant
    qu'un cron/CLI tient déjà la session (collision réelle, pas juste observée dans l'historique) ?
    Un message d'erreur clair côté WebUI, pas un échec silencieux.
