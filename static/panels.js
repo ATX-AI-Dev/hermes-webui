@@ -44,7 +44,7 @@ const APP_TITLEBAR_KEYS = {
   memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
-const MAIN_VIEW_PANELS = ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','plugin'];
+const MAIN_VIEW_PANELS = ['settings','skills','memory','tasks','kanban','workspaces','profiles','bots','insights','logs','plugin'];
 const MAIN_VIEW_SIDEBAR_PANEL_FALLBACKS = { plugin: 'settings' };
 
 /**
@@ -456,6 +456,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'memory') await loadMemory();
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
+  if (nextPanel === 'bots') await loadBotsPanel();
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
@@ -6638,6 +6639,112 @@ function _refreshProfileSwitchBackground(gen){
     window._showTitlebarProfile=!!(s&&s.show_titlebar_profile);
     if(typeof _applyTitlebarProfileVisibility==='function') _applyTitlebarProfileVisibility();
   }).catch(function(){});
+}
+
+// ── Bots panel (palier B / B2) ─────────────────────────────────────────────
+// Read-only supervision of every Hermes profile in its pilote/managers/bots
+// hierarchy (GET /api/bots). Start/Stop targets that bot's gateway via the
+// per-profile /api/gateway/* endpoints (B1). "Open thread" switches to the
+// bot's profile and drops you on the chat view.
+let _botsPanelBusy = false;
+let _botsDelegderBound = false;
+
+function _botsRelTime(iso) {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (isNaN(ts)) return '';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return 'à l’instant';
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  return `il y a ${Math.floor(s / 86400)} j`;
+}
+
+async function loadBotsPanel(fresh) {
+  const panel = $('botsPanel');
+  if (!panel) return;
+  if (!_botsDelegderBound) {
+    _botsDelegderBound = true;
+    panel.addEventListener('click', _botsOnClick);
+  }
+  try {
+    const data = await api('/api/bots' + (fresh ? '?fresh=1' : ''));
+    const bots = Array.isArray(data.bots) ? data.bots : [];
+    if (!bots.length) {
+      panel.innerHTML = `<div style="padding:16px;color:var(--muted);font-size:12px">${esc(t('bots_none'))}</div>`;
+      return;
+    }
+    const c = data.counts || {};
+    const branchLabels = {};
+    (data.branches || []).forEach(b => { if (b && b.id) branchLabels[b.id] = b.label || b.id; });
+
+    let html = `<div class="bots-summary">
+      <span><strong>${c.gateways_up || 0}</strong> / ${c.total || bots.length} ${esc(t('bots_summary_gateways'))}</span>
+      <span><strong>${c.active_sessions || 0}</strong> ${esc(t('bots_summary_sessions'))}</span>
+    </div>`;
+
+    let lastBranch = null;
+    for (const bot of bots) {
+      if (bot.branch !== lastBranch) {
+        lastBranch = bot.branch;
+        html += `<div class="bots-branch-label">${esc(branchLabels[bot.branch] || bot.branch)}</div>`;
+      }
+      const running = !!bot.gateway_running;
+      const child = bot.parent ? ' bots-row--child' : '';
+      const model = bot.model ? String(bot.model).split('/').pop() : '';
+      const sessions = bot.active_sessions > 0
+        ? `<span class="bots-pill">${bot.active_sessions} ${esc(t('bots_col_sessions'))}</span>` : '';
+      const last = bot.last_activity ? `<span class="bots-when">${esc(_botsRelTime(bot.last_activity))}</span>` : '';
+      const perm = bot.permanent_gateway ? `<span class="bots-pill bots-pill--perm" title="${esc(t('bots_permanent'))}">P</span>` : '';
+      const activeBadge = bot.is_active ? `<span class="bots-pill bots-pill--active">${esc(t('bots_active'))}</span>` : '';
+      const gwTitle = running ? t('bots_gateway_running') : t('bots_gateway_stopped');
+      const gwBtn = running
+        ? `<button class="bots-btn bots-btn--stop" data-bot="${esc(bot.id)}" data-act="stop">${esc(t('bots_gateway_stop'))}</button>`
+        : `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="start">${esc(t('bots_gateway_start'))}</button>`;
+      html += `<div class="bots-row${child}">
+        <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
+        <span class="bots-id">${esc(bot.id)}</span>
+        <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
+        <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
+        <span class="bots-actions">
+          <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>
+          ${gwBtn}
+        </span>
+      </div>`;
+    }
+    panel.innerHTML = html;
+  } catch (e) {
+    panel.innerHTML = `<div style="padding:16px;color:var(--danger,#c0392b);font-size:12px">${esc(String(e && e.message || e))}</div>`;
+  }
+}
+
+async function _botsOnClick(ev) {
+  const btn = ev.target.closest('button[data-bot][data-act]');
+  if (!btn) return;
+  const bot = btn.dataset.bot;
+  const act = btn.dataset.act;
+  if (act === 'open') {
+    try {
+      if (typeof switchToProfile === 'function') await switchToProfile(bot);
+      if (typeof switchPanel === 'function') switchPanel('chat');
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(String(e && e.message || e));
+    }
+    return;
+  }
+  if ((act === 'start' || act === 'stop') && !_botsPanelBusy) {
+    _botsPanelBusy = true;
+    btn.disabled = true;
+    try {
+      const r = await api('/api/gateway/' + act, { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
+      if (r && r.ok === false && typeof showToast === 'function') showToast(r.error || t('bots_action_failed'));
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
+    } finally {
+      _botsPanelBusy = false;
+      await loadBotsPanel(true);
+    }
+  }
 }
 
 async function loadProfilesPanel() {

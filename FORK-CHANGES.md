@@ -41,11 +41,58 @@ sur le statut (+ rejet invalide, + inchangé sans profil).
   `hermes_cli.profiles._check_gateway_running` disparaît en amont, on retombe sur l'estimation
   métadonnées (pas de crash).
 
-### Non fait / non lancé ici
+### Validé
 
-- Suite de tests **non exécutée** sur le poste de dev (Windows, Python 3.14 seulement, agent
-  Hermes absent). À valider sur `.178` : `./scripts/test.sh tests/test_gateway_multiprofile_b1.py
-  tests/test_gateway_lifecycle_controls.py tests/test_gateway_status_agent_health.py
-  tests/test_issue3194_gateway_configured_banner.py -v`.
-- Frontend : le panneau B2 câblera les boutons Démarrer/Arrêter par bot sur ce `profile`. Pas
-  de changement frontend dans B1.
+- `.178` (agent réel, Python 3.11.16) : **49/49** — `test_gateway_multiprofile_b1` +
+  `test_gateway_lifecycle_controls` + `test_gateway_status_agent_health` +
+  `test_issue3194_gateway_configured_banner` + `test_health_restart`. Aucune régression.
+
+---
+
+## B2 — panneau « Bots / Hiérarchie »
+
+**Branche** : `feat/b2-bots-panel` (part de `feat/b1-gateway-multiprofile` — B2 dépend de B1
+pour le contrôle gateway par-profil).
+**Objectif** : un poste de supervision de la hiérarchie des bots, en lecture seule, avec
+Démarrer/Arrêter par bot (via B1) et « Ouvrir le fil » (bascule de profil).
+
+### B2a — backend (commit `9a1c8332`)
+
+| Fichier | Rôle | Couplage amont |
+| :-- | :-- | :-- |
+| `api/bots_hierarchy.json` (nouveau) | Carte fork-locale pilote/managers/bots des 18 profils. Copie opérateur possible à `<HERMES_HOME>/webui/bots_hierarchy.json`. Profils hors carte → branche `autre`. | aucun (données) |
+| `api/bots_overview.py` (nouveau) | `build_bots_overview()` : fusionne `list_profiles_api()` + la carte + un scan **lecture seule** de `state.db` (`sessions` : `profile_name`, `ended_at`, `last_activity_at`, `archived`) pour `active_sessions` / `last_activity`. Cache 3 s. | `api.profiles.list_profiles_api`, `api.profiles._resolve_base_hermes_home` (helper privé — stable). Schéma `state.db` lu en SQL direct (mêmes colonnes que la recon du 04/09). |
+| `api/routes.py` | `GET /api/bots` (`?fresh=1` bypass cache). | — |
+| `tests/test_bots_overview_b2.py` (nouveau) | 7 tests : fusion carte/profils, profil inconnu→`autre`, counts, tri par branche, override opérateur + JSON cassé ignoré, route. | — |
+
+### B2b — frontend
+
+| Fichier | Changement |
+| :-- | :-- |
+| `static/index.html` | Bouton nav (rail + sidebar mobile) `data-panel="bots"` ; `<div id="panelBots">` + `#botsPanel`. |
+| `static/panels.js` | `'bots'` dans `MAIN_VIEW_PANELS` ; hook `switchPanel` → `loadBotsPanel()` ; `loadBotsPanel()` + délégation de clic : Démarrer/Arrêter → `POST /api/gateway/{start,stop}` `{profile}` (B1), « Ouvrir le fil » → `switchToProfile()` + `switchPanel('chat')`. Aucune écriture hors gateway. |
+| `static/style.css` | Bloc `.bots-*` en fin de fichier (préfixe scopé, ajout append-only). |
+| `static/i18n.js` | 17 clés `bots_*` / `tab_bots` ajoutées dans **les 15 blocs de langue** (valeurs FR pour `fr`, EN pour `en` et les 13 autres — rattrapage de traduction ultérieur). Insertion après `tab_profiles:` de chaque bloc. Contrat de couverture des locales respecté. |
+| `tests/test_bots_panel_frontend_b2.py` (nouveau) | 4 tests grep : nav+panel dans `index.html`, hook+loader dans `panels.js`, clés i18n en+fr, scope CSS. |
+
+### Limites connues B2
+
+- `active_sessions` = sessions non archivées et non terminées (`ended_at IS NULL`).
+  `last_activity` = `MAX(last_activity_at)` sur les non archivées (inclut les terminées — c'est
+  volontaire, c'est « dernière activité du bot »).
+- Pas de sonde cron live par bot (18 sous-process = trop cher en synchrone). `permanent_gateway`
+  vient de la carte statique, pas d'une vérif temps réel. À ajouter en B2c si besoin.
+- Le panneau ne surface **pas** la « Bot Chat » — c'est le périmètre de B3.
+- Frontend non testé en navigateur ici (pas d'agent + smoke browser). Tests grep + `node --check`
+  seulement ; à valider visuellement sur `.178`.
+
+### Non lancé ici
+
+- Suite complète non exécutée sur le poste dev (Windows, agent absent). Échecs locaux
+  `test_optionz_liveview_perf`, `test_model_picker_escaping`, `test_issue1255_refine_selection`,
+  `test_clarify_sse` = **préexistants** (vérifié en stashant : ils tombent aussi sur
+  `origin/master`). Les 8 tests de couverture de locale **passent** après le rattrapage des
+  clés `bots_*`.
+- À valider sur `.178` : `./scripts/test.sh tests/test_bots_overview_b2.py
+  tests/test_bots_panel_frontend_b2.py tests/test_gateway_multiprofile_b1.py -v` + run complet
+  + inspection visuelle du panneau.
