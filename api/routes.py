@@ -13630,6 +13630,26 @@ def handle_get(handler, parsed) -> bool:
                 # otherwise emit a useless 409 with profile=null.
                 if _diag: _diag.finish()
                 return bad(handler, "Session not found", 404)
+            # Bot Chat live-refresh (B4 follow-up, 04/09/2026): a metadata-only
+            # poll for an open Bot Chat is the frontend's existing 30s external-
+            # session heartbeat (refreshActiveSessionIfExternallyUpdated in
+            # sessions.js) — reused here rather than adding a second poll. A
+            # bot's reply delivered by hermes-relay-watcher.service (or any
+            # other surface) writes straight into the agent-native state.db,
+            # which this session's own sidecar never sees on its own. Cheap
+            # (COUNT(*) only) unless state.db actually grew, in which case a
+            # full re-import runs and `s` is reloaded so the response below
+            # reflects the new count -- the frontend's existing count
+            # comparison then does the rest (full reload of the transcript).
+            if (not load_messages) and getattr(s, "is_cli_session", False) and _session_profile:
+                try:
+                    from api.bot_mesh import resync_bot_chat_if_stale
+                    if resync_bot_chat_if_stale(
+                        _session_profile, sid, getattr(s, "_metadata_message_count", None),
+                    ):
+                        s = get_session(sid, metadata_only=True)
+                except Exception:
+                    logger.debug("Bot Chat live-refresh check failed for %s", sid, exc_info=True)
             original_stream_id = getattr(s, "active_stream_id", None)
             _clear_stale_stream_state(s)
             cli_meta = _lookup_cli_session_metadata(sid) if _session_requires_cli_metadata_lookup(s) else {}

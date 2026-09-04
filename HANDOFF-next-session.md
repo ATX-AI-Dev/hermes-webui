@@ -169,11 +169,47 @@ Branche `feat/b4-continue-bots` (renommée depuis `feat/b4-continue-prototype`),
 service redémarré, `/health` `ok`) + robustesse du verrou d'exclusivité (WebUI participe
 maintenant au bail agent-side, voir §1 point 4 et §3 point 4) + tour complet réel sur un bot à
 la demande (`pere-blaise`, voir §3 point 5 — aucun gateway à démarrer, confirmé au niveau
-`state.db`, réception côté `lancelot` en ~2s). **Un seul item reste ouvert** :
+`state.db`, réception côté `lancelot` en ~2s) + **rafraîchissement live des Bot Chat** (voir
+ci-dessous). **Un seul item reste ouvert** :
 
 1. **Rendu des tours entrants « Message from X »** (PLAN-B4 §6 point 2, non fait) : chantier
    distinct du rendu riche des tool-cards — toucherait le rendu des bulles de texte utilisateur
    normales, pas seulement `buildToolCard`. Pas chiffré.
+
+### Rafraîchissement live des Bot Chat (04/09/2026, session suivante)
+
+Suite à la demande de Ludo d'une communication inter-bots « fluide et dynamique » : le vrai
+goulot n'était pas côté infra (un démon temps réel existe déjà sur `.178`, voir le vault
+`infra/hermes-cron-jobs.md` — et un bug réel y a été trouvé et corrigé le même jour, liste de
+profils figée au démarrage du démon) mais côté **WebUI lui-même**. WebUI a déjà un mécanisme
+générique de rafraîchissement live pour toute session externe/CLI (`static/sessions.js`,
+`refreshActiveSessionIfExternallyUpdated` — poll 30s + SSE + focus/visibilité), mais il ne
+comparait que le compteur de messages du **sidecar WebUI** à lui-même — jamais une relecture du
+`state.db` agent-natif où vit réellement une Bot Chat. Une réponse déposée par
+`hermes-relay-watcher.service` (ou toute autre surface) restait donc invisible tant que
+l'utilisateur ne rouvrait pas manuellement la session.
+
+**Corrigé** : `api/bot_mesh.py` (`bot_chat_state_db_message_count`, `resync_bot_chat_if_stale`)
++ `api/routes.py` (appelé dans le handler `GET /api/session` en mode métadonnées seules, juste
+après la vérification de profil). Réutilise le poll existant côté frontend — **aucun changement
+frontend nécessaire** : le check est ajouté côté backend, cheap (`COUNT(*)` seul tant que rien
+n'a changé), et ne déclenche un re-import complet (`continue_bot_chat`) que si `state.db` a
+réellement grandi depuis le dernier `message_count` connu du sidecar.
+
+**Validé en live** sur `.178` (instance jetable, port 8795, insertion directe d'un message de
+test dans le `state.db` réel de `pere-blaise` pendant que sa Bot Chat était ouverte dans WebUI) :
+confirmé côté backend que `GET /api/session?...&messages=0` reflète bien le nouveau
+`message_count`/`last_message_at` après l'insertion, sans action manuelle. Le poll frontend
+lui-même n'a pas pu être observé en action dans l'environnement de test automatisé
+(`document.hidden=true` sur l'onglet piloté par l'agent — comportement de garde déjà existant
+et volontaire de WebUI, pas un défaut du correctif) ; le mécanisme de reprise sur focus/visibilité
+n'est donc pas remis en cause, juste non observable dans ce contexte de test précis. 8 tests
+unitaires (`tests/test_bot_chat_live_refresh.py`).
+
+**Limite connue** : ne concerne que les sessions **actuellement ouvertes** dans un onglet actif
+— une conversation en arrière-plan (autre profil, sidebar) ne se rafraîchit pas toute seule
+(comportement hérité, pas modifié ici). Un badge « non lu » en direct sur les autres bots serait
+un chantier distinct, pas engagé.
 
 **Recommandation** : avancer par étapes testées comme B1→B2→B3→B4 (petits patches, validation
 live systématique avant généralisation) — cette discipline a payé à chaque palier jusqu'ici,

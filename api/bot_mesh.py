@@ -211,6 +211,61 @@ def continue_bot_chat(profile: str) -> dict:
     return {"ok": True, "session_id": sid}
 
 
+def bot_chat_state_db_message_count(profile: str, session_id: str) -> int | None:
+    """Cheap ``COUNT(*)`` of ``session_id``'s rows in the profile's live
+    ``state.db`` — no content read, just the row count. Returns ``None`` if
+    the profile/session can't be resolved. Used to detect, without the cost
+    of a full re-import, whether a Bot Chat has grown since WebUI's own
+    sidecar copy was last synced (see ``resync_bot_chat_if_stale``).
+    """
+    db_path = profile_db_path(profile)
+    if db_path is None or not session_id:
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        finally:
+            con.close()
+    except Exception:
+        logger.debug(
+            "bot_mesh: bot_chat_state_db_message_count failed for %s/%s",
+            profile, session_id, exc_info=True,
+        )
+        return None
+    return int(row[0]) if row else None
+
+
+def resync_bot_chat_if_stale(profile: str, session_id: str, known_count: int | None) -> bool:
+    """Re-import a Bot Chat's WebUI sidecar copy if the agent-native
+    ``state.db`` has grown past ``known_count`` (WebUI's last-known count).
+
+    This is what makes an open Bot Chat conversation update live: a bot's
+    reply delivered by ``hermes-relay-watcher.service`` (or any other
+    surface — cron, Telegram, CLI) writes straight into the agent-native
+    ``state.db``, which WebUI's own session store never sees on its own.
+    Called from the metadata-only ``GET /api/session`` poll that the
+    frontend already runs every ~30s (plus on focus/visibility) for any
+    externally-sourced session (see ``static/sessions.js``,
+    ``refreshActiveSessionIfExternallyUpdated`` / ``_isExternalSession``) —
+    reusing that existing poll instead of adding a second one.
+
+    Returns ``True`` if a resync happened (caller should reload ``s`` before
+    building its response), ``False`` otherwise. Never raises — a failed
+    resync just leaves the sidecar at its last-known state, exactly as
+    before this function existed.
+    """
+    if known_count is None or not is_bot_chat_session(profile, session_id):
+        return False
+    live_count = bot_chat_state_db_message_count(profile, session_id)
+    if live_count is None or live_count <= known_count:
+        return False
+    result = continue_bot_chat(profile)
+    return bool(result.get("ok"))
+
+
 class BotChatSessionLockedError(RuntimeError):
     """A WebUI turn was refused because another surface already owns this
     Bot Chat session (cron/CLI/Telegram running an agent turn against it).
