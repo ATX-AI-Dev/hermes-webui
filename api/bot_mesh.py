@@ -211,6 +211,88 @@ def continue_bot_chat(profile: str) -> dict:
     return {"ok": True, "session_id": sid}
 
 
+class BotChatSessionLockedError(RuntimeError):
+    """A WebUI turn was refused because another surface already owns this
+    Bot Chat session (cron/CLI/Telegram running an agent turn against it).
+
+    Carries ``reason`` (agent-side machine-readable code, e.g.
+    ``SESSION_NOT_OWNED``) so callers can branch on it without matching text.
+    """
+
+    def __init__(self, message: str, reason: str = ""):
+        super().__init__(message)
+        self.reason = reason
+
+
+def is_bot_chat_session(profile: str, session_id: str) -> bool:
+    """True when ``session_id`` is the profile's canonical Bot Chat session.
+
+    Used to scope the active-session lease below to Bot Chat turns only —
+    the one place WebUI writes into a session that a cron job or another
+    live surface may also be driving (see ``continue_bot_chat`` docstring).
+    Ordinary WebUI-only sessions never collide with another surface, so they
+    are deliberately left outside this check.
+    """
+    if not session_id:
+        return False
+    session = find_bot_chat_session(profile)
+    return bool(session and session.get("session_id") == session_id)
+
+
+def acquire_bot_chat_lease(profile: str, session_id: str):
+    """Claim the agent-side active-session lease for a Bot Chat turn.
+
+    Returns ``(lease, None)`` on success, or ``(None, refusal)`` where
+    ``refusal`` is a human-readable message (agent-native
+    ``ActiveSessionRefusal``, itself a ``str``) when another surface
+    (cron/CLI/Telegram) already owns this session. WebUI previously never
+    called this at all — a real collision was a silent double-writer, not a
+    refusal (see PLAN-B4-fusion-conversation.md §6 point 4). Degrades to
+    "no lock enforcement" (``(None, None)``) if the mechanism is unavailable
+    (older agent checkout, resolution failure) rather than blocking every
+    Bot Chat turn on an import error.
+    """
+    profile = _normalize_profile(profile)
+    try:
+        from api.profiles import get_hermes_home_for_profile
+        from hermes_cli.active_sessions import try_acquire_active_session
+
+        registry_home = get_hermes_home_for_profile(profile)
+        lease, refusal = try_acquire_active_session(
+            session_id=session_id,
+            surface="webui",
+            config=None,
+            metadata={
+                "platform": "webui",
+                "profile": profile,
+                # Re-entrancy (mirrors gateway/run.py): a retried WebUI turn
+                # against the same session in this same process re-acquires
+                # its own lease instead of being fenced out by its own leak.
+                "live_session_id": str(session_id),
+            },
+            registry_home=registry_home,
+        )
+    except Exception:
+        logger.debug(
+            "bot_mesh: active-session lease unavailable for %s; proceeding without it",
+            profile,
+            exc_info=True,
+        )
+        return None, None
+    return lease, refusal
+
+
+def release_bot_chat_lease(lease) -> None:
+    """Release a lease from ``acquire_bot_chat_lease``. Best-effort, never raises."""
+    if lease is None:
+        return
+    try:
+        from hermes_cli.active_sessions import release_active_session
+        release_active_session(lease)
+    except Exception:
+        logger.debug("bot_mesh: failed to release active-session lease", exc_info=True)
+
+
 def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
     """Return ``{"exists", "session_id", "turns": [...]}``. Read-only, best-effort.
 

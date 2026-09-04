@@ -9137,6 +9137,7 @@ def _run_agent_streaming(
     _checkpoint_stop = None
     _ckpt_thread = None
     _agent_lock = None
+    _bot_chat_lease = None
     try:
         # Register this stream with the global streaming meter and start the 1 Hz
         # metering ticker. Kept INSIDE the outer try so the outer `finally`'s
@@ -9348,6 +9349,29 @@ def _run_agent_streaming(
                 # If either module is static/missing/raises, the legacy path
                 # above has already snapshotted and patched under this lock.
         # Lock released — agent runs without holding it
+
+        # ── Bot Chat active-session lease (B4 §6 point 4) ──
+        # WebUI previously never participated in the agent-side per-session
+        # exclusivity lease at all (only gateway/CLI surfaces called
+        # try_acquire_active_session) — a real collision with a cron/CLI turn
+        # already driving this profile's Bot Chat was a silent double-writer,
+        # not a refusal. Scoped to Bot Chat sessions only: ordinary WebUI-only
+        # sessions never collide with another surface. See api/bot_mesh.py.
+        try:
+            from api.bot_mesh import is_bot_chat_session, acquire_bot_chat_lease, BotChatSessionLockedError
+            if is_bot_chat_session(_resolved_profile_name, session_id):
+                _bot_chat_lease, _bot_chat_refusal = acquire_bot_chat_lease(
+                    _resolved_profile_name, session_id,
+                )
+                if _bot_chat_refusal is not None:
+                    raise BotChatSessionLockedError(
+                        str(_bot_chat_refusal), getattr(_bot_chat_refusal, 'reason', ''),
+                    )
+        except BotChatSessionLockedError:
+            raise
+        except Exception:
+            logger.debug("bot_mesh: Bot Chat lease check failed; proceeding without it", exc_info=True)
+
         # ── MCP Server Discovery (lazy import, idempotent) ──
         # MUST run AFTER the HERMES_HOME mutation above — `discover_mcp_tools()`
         # reads `~/.hermes/config.yaml` via `get_hermes_home()`, which uses
@@ -12340,6 +12364,9 @@ def _run_agent_streaming(
                     _unreg_clarify_notify(session_id)
                 except Exception:
                     logger.debug("Failed to unregister clarify callback")
+            if _bot_chat_lease is not None:
+                from api.bot_mesh import release_bot_chat_lease
+                release_bot_chat_lease(_bot_chat_lease)
             with _ENV_LOCK:
                 for _key, _old_value in old_profile_env.items():
                     if _old_value is None: os.environ.pop(_key, None)
@@ -12370,7 +12397,20 @@ def _run_agent_streaming(
         if _stripped != err_str:
             err_str = _stripped
         _exc_lower = err_str.lower()
-        _classification = _classify_provider_error(err_str, e)
+        from api.bot_mesh import BotChatSessionLockedError as _BotChatSessionLockedError
+        if isinstance(e, _BotChatSessionLockedError):
+            # Bypass generic provider-error classification: this is not a
+            # provider failure and must never trigger the retry/self-heal
+            # branches below (all keyed off _classification['type'], none of
+            # which match this one) — just surface the agent's own refusal
+            # message as a clean, non-retryable apperror.
+            _classification = {
+                'label': 'Bot Chat in use',
+                'type': 'bot_chat_session_locked',
+                'hint': 'Wait for the other surface (cron/CLI/Telegram) to finish this turn, then try again.',
+            }
+        else:
+            _classification = _classify_provider_error(err_str, e)
         _exc_is_credential_pool_empty = _classification['type'] == 'credential_pool_empty'
         if cancel_event.is_set():
             if s is not None:
@@ -12631,6 +12671,10 @@ def _run_agent_streaming(
                 _classification['label'], _classification['type'], _classification['hint'],
             )
         elif _exc_is_compression_exhausted:
+            _exc_label, _exc_type, _exc_hint = (
+                _classification['label'], _classification['type'], _classification['hint'],
+            )
+        elif _classification['type'] == 'bot_chat_session_locked':
             _exc_label, _exc_type, _exc_hint = (
                 _classification['label'], _classification['type'], _classification['hint'],
             )

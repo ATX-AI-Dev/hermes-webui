@@ -215,9 +215,35 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    - **Bots sans gateway permanent** (`pere-blaise`, `bohorth`, `venec` vérifiés) : une seule
      session au total — la Bot Chat elle-même. Pas de cron (pas de scheduler sans gateway), pas
      de Telegram. Cohérent avec leur statut « à la demande ».
-4. **Robustesse du verrou « live owner »** : que doit voir Ludo si WebUI tente d'écrire pendant
-   qu'un cron/CLI tient déjà la session (collision réelle, pas juste observée dans l'historique) ?
-   Un message d'erreur clair côté WebUI, pas un échec silencieux.
+4. **✅ Fait le 04/09/2026 (session suivante)** : recon du code source agent sur `.178`
+   (`hermes_cli/active_sessions.py`) a révélé que le problème réel n'était pas « message
+   d'erreur peu clair » mais plus profond : **WebUI ne participait pas du tout** au bail
+   d'exclusivité `try_acquire_active_session()` — seuls `gateway/run.py`, `tui_gateway/server.py`
+   et `cli.py` l'appellent. `try_acquire_active_session()` ne lève d'ailleurs jamais
+   d'exception : elle renvoie `(lease, None)` ou `(None, refusal)`, `refusal` étant un message
+   humain propre (`ActiveSessionRefusal`, sous-classe de `str`, avec un `.reason`
+   machine-readable). Une collision réelle (WebUI répondant dans une Bot Chat pendant qu'un
+   cron/CLI/Telegram tient déjà la session) aurait donc été un **double-écrivain silencieux**,
+   sans aucun refus ni erreur — pire que ce qui était documenté.
+
+   **Correctif** (`api/bot_mesh.py` : `is_bot_chat_session`, `acquire_bot_chat_lease`,
+   `release_bot_chat_lease`, `BotChatSessionLockedError` ; `api/streaming.py` : acquisition
+   juste après la bascule `HERMES_HOME` par profil, libération dans le `finally` existant,
+   classification dédiée `bot_chat_session_locked` dans le bloc `except` générique du tour
+   — bypass volontaire de `_classify_provider_error()` pour ne déclencher aucune relance/self-
+   heal). Portée volontairement limitée aux sessions Bot Chat (`is_bot_chat_session`) : les
+   sessions WebUI ordinaires ne collisionnent jamais avec une autre surface, donc pas de coût
+   ajouté sur le chemin de tour standard. Dégrade silencieusement vers « pas d'application du
+   verrou » si `hermes_cli.active_sessions` est indisponible (ancien checkout agent, erreur de
+   résolution) plutôt que de bloquer tout tour Bot Chat sur une erreur d'import.
+
+   17 tests unitaires ajoutés (`tests/test_bot_mesh_session_lease.py`) sur le module agent
+   simulé (le vrai `hermes_cli.active_sessions` vit dans le checkout agent, pas dans ce dépôt).
+   **Non fait** : collision réelle jamais reproduite en conditions live (aurait exigé de
+   déclencher volontairement un tour CLI/cron concurrent sur `.178` pendant un tour WebUI) —
+   le message de refus affiché à l'utilisateur n'a donc pas été vérifié à l'écran, seulement
+   par construction (le texte vient tel quel de `session_already_owned_message()` côté agent,
+   dont la source a été lue directement).
 5. **✅ Fait le 04/09/2026** : renommage complet (`continue_bot_chat_prototype` →
    `continue_bot_chat`, retrait de « (prototype) » du libellé i18n FR/EN et du `title` du
    bouton, fichier de tests renommé `test_bot_mesh_continue.py`). `POST /api/bot-chat/continue`
