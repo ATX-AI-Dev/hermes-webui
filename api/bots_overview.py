@@ -3,8 +3,17 @@
 Palier B / B2. One call, one payload: for each profile the WebUI can see
 (``list_profiles_api``) it merges the fork-local hierarchy map
 (``api/bots_hierarchy.json``, or an operator copy at
-``<HERMES_HOME>/webui/bots_hierarchy.json``) with a cheap read-only scan of the
-shared ``state.db`` for active-session counts and last activity.
+``<HERMES_HOME>/webui/bots_hierarchy.json``) with a cheap read-only scan of
+*that profile's own* ``state.db`` for active-session counts and last activity.
+
+Correction (2026-09-04, same day as first deploy): each profile has its own
+``state.db`` at ``<profile home>/state.db`` — confirmed live
+(``find ~/.hermes -maxdepth 3 -name state.db`` returned one file per
+profile). There is no single shared database. An earlier revision of this
+module read only the base ``~/.hermes/state.db`` (the root/``default``
+profile's own store) and silently attributed every OTHER profile's session
+stats to it — every bot but ``default`` showed zero sessions. Every lookup
+now resolves each profile's own Hermes home first.
 
 Everything here is read-only. Mutations (start/stop a bot's gateway) go through
 the existing ``/api/gateway/*`` endpoints with an explicit ``profile`` (B1).
@@ -76,38 +85,48 @@ def _profile_description(profile_home: str | Path) -> str | None:
     return None
 
 
-def _sessions_by_profile() -> dict[str, dict]:
-    """{profile_name: {active, last_activity}} from a read-only state.db scan.
+def _sessions_for_one_profile(name: str) -> dict | None:
+    """{active, last_activity} for ONE profile's own state.db, or None.
 
-    ``active`` counts non-archived, not-yet-ended sessions. Best-effort: any
-    error (missing db, schema drift) yields an empty map and the panel simply
-    shows zeros.
+    Correction (2026-09-04): each profile has its own ``state.db`` at
+    ``<profile home>/state.db`` — there is no single shared database (an
+    earlier revision of this module assumed one and silently read only the
+    root/``default`` profile's store for every bot). ``active`` counts
+    non-archived, not-yet-ended sessions. Best-effort: any error (missing db,
+    schema drift) yields ``None`` and the panel shows zeros for that bot.
     """
-    base = _base_hermes_home()
-    if base is None:
-        return {}
-    db_path = base / "state.db"
+    try:
+        from api.profiles import get_hermes_home_for_profile
+        db_path = Path(get_hermes_home_for_profile(name)) / "state.db"
+    except Exception:
+        logger.debug("bots_overview: could not resolve Hermes home for %s", name, exc_info=True)
+        return None
     if not db_path.exists():
-        return {}
-    out: dict[str, dict] = {}
+        return None
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
-            rows = con.execute(
-                "SELECT COALESCE(NULLIF(profile_name, ''), 'default') AS p, "
-                "       SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END) AS active, "
+            row = con.execute(
+                "SELECT SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END) AS active, "
                 "       MAX(last_activity_at) AS last "
-                "FROM sessions "
-                "WHERE COALESCE(archived, 0) = 0 "
-                "GROUP BY p"
-            ).fetchall()
+                "FROM sessions WHERE COALESCE(archived, 0) = 0"
+            ).fetchone()
         finally:
             con.close()
     except Exception:
-        logger.debug("bots_overview: state.db scan failed", exc_info=True)
-        return {}
-    for pname, active, last in rows:
-        out[str(pname)] = {"active": int(active or 0), "last_activity": last}
+        logger.debug("bots_overview: state.db scan failed for %s", name, exc_info=True)
+        return None
+    if not row:
+        return None
+    return {"active": int(row[0] or 0), "last_activity": row[1]}
+
+
+def _sessions_by_profile(names: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for name in names:
+        stats = _sessions_for_one_profile(name)
+        if stats is not None:
+            out[name] = stats
     return out
 
 
@@ -133,13 +152,14 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
         logger.warning("bots_overview: list_profiles_api failed", exc_info=True)
         rows = []
 
+    names = [str(r.get("name") or "").strip() for r in rows if r.get("name")]
     hierarchy = _load_hierarchy()
     hmap: dict[str, dict] = hierarchy.get("profiles") or {}
-    sessions = _sessions_by_profile()
+    sessions = _sessions_by_profile(names)
     branch_rank = _branch_order(hierarchy)
     try:
         from api.bot_mesh import list_bot_chat_profiles
-        bot_chat_profiles = list_bot_chat_profiles()
+        bot_chat_profiles = list_bot_chat_profiles(names)
     except Exception:
         logger.debug("bots_overview: list_bot_chat_profiles failed", exc_info=True)
         bot_chat_profiles = set()

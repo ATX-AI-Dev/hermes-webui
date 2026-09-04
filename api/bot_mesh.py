@@ -8,14 +8,22 @@ surfaces it on demand, read-only, for the Bots panel's "inter-bot thread"
 viewer.
 
 Schema note (verified against a real ``.178`` state.db, 2026-09-04):
-``sessions`` carries ``title='Bot Chat'``, ``hidden=1``, ``profile_name``.
-``messages`` carries ``role, content, tool_call_id, tool_calls (JSON string),
-tool_name, timestamp (float epoch seconds)``. A ``message_agent`` call is an
-``assistant`` row whose ``tool_calls`` JSON has a function named
-``message_agent``/``bot_mode_dm``; its ack lands in the paired ``tool`` row
-keyed by ``tool_call_id``. ``message_agent`` itself never returns the peer's
-reply (see the tool's docstring) — that arrives later as its own turn, which
-this reader renders like any other assistant/user text turn.
+``sessions`` carries ``title='Bot Chat'``, ``hidden=1``. ``messages`` carries
+``role, content, tool_call_id, tool_calls (JSON string), tool_name, timestamp
+(float epoch seconds)``. A ``message_agent`` call is an ``assistant`` row
+whose ``tool_calls`` JSON has a function named ``message_agent``/
+``bot_mode_dm``; its ack lands in the paired ``tool`` row keyed by
+``tool_call_id``. ``message_agent`` itself never returns the peer's reply
+(see the tool's docstring) — that arrives later as its own turn, which this
+reader renders like any other assistant/user text turn.
+
+Correction (2026-09-04, same day): **each profile has its own ``state.db``**
+at ``<profile home>/state.db`` — confirmed live (``find ~/.hermes -maxdepth 3
+-name state.db`` returned one file per profile). There is no single shared
+database; the base ``~/.hermes/state.db`` is only the root/``default``
+profile's own store. Earlier revisions of this module read only that root
+file and silently missed every named profile's Bot Chat. Every lookup here
+now resolves the *target profile's own* Hermes home first.
 
 Nothing here writes to state.db. Driving a Bot Chat turn from WebUI (actually
 sending a message_agent call from the UI) is a separate, not-yet-built
@@ -37,43 +45,36 @@ _CONTENT_PREVIEW_CHARS = 2000
 _TOOL_PREVIEW_CHARS = 300
 
 
-def _base_hermes_home() -> Path | None:
-    try:
-        from api.profiles import _resolve_base_hermes_home
-        return Path(_resolve_base_hermes_home())
-    except Exception:
-        logger.debug("bot_mesh: could not resolve base Hermes home", exc_info=True)
-        return None
-
-
-def _state_db_path() -> Path | None:
-    base = _base_hermes_home()
-    if base is None:
-        return None
-    db = base / "state.db"
-    return db if db.exists() else None
-
-
 def _normalize_profile(profile: str | None) -> str:
     profile = str(profile or "default").strip()
     return profile or "default"
 
 
+def profile_db_path(profile: str) -> Path | None:
+    """Return ``<that profile's own Hermes home>/state.db`` if it exists."""
+    profile = _normalize_profile(profile)
+    try:
+        from api.profiles import get_hermes_home_for_profile
+        home = Path(get_hermes_home_for_profile(profile))
+    except Exception:
+        logger.debug("bot_mesh: could not resolve Hermes home for %s", profile, exc_info=True)
+        return None
+    db = home / "state.db"
+    return db if db.exists() else None
+
+
 def find_bot_chat_session(profile: str) -> dict | None:
     """Return ``{"session_id", "message_count", "last_activity_at"}`` or ``None``."""
-    db_path = _state_db_path()
+    db_path = profile_db_path(profile)
     if db_path is None:
         return None
-    profile = _normalize_profile(profile)
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             row = con.execute(
                 "SELECT id, message_count, last_activity_at FROM sessions "
                 "WHERE title = 'Bot Chat' AND hidden = 1 "
-                "AND COALESCE(NULLIF(profile_name, ''), 'default') = ? "
-                "ORDER BY last_activity_at DESC LIMIT 1",
-                (profile,),
+                "ORDER BY last_activity_at DESC LIMIT 1"
             ).fetchone()
         finally:
             con.close()
@@ -85,28 +86,26 @@ def find_bot_chat_session(profile: str) -> dict | None:
     return {"session_id": row[0], "message_count": row[1], "last_activity_at": row[2]}
 
 
-def list_bot_chat_profiles() -> set[str]:
-    """Every profile that currently has a (hidden) Bot Chat session.
+def bot_chat_exists(profile: str) -> bool:
+    return find_bot_chat_session(profile) is not None
 
-    Cheap existence check the Bots panel uses to decide whether to show the
-    "inter-bot thread" button for a given bot, without one query per bot.
+
+def list_bot_chat_profiles(names: list[str] | None = None) -> set[str]:
+    """Every profile (from ``names``, or every known profile) with a Bot Chat.
+
+    Opens one ``state.db`` per candidate profile — cheap read-only sqlite
+    opens, but O(profile count). Callers that already have the profile list
+    (e.g. ``bots_overview.build_bots_overview``) should pass ``names`` to
+    avoid a redundant ``list_profiles_api()`` call.
     """
-    db_path = _state_db_path()
-    if db_path is None:
-        return set()
-    try:
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    if names is None:
         try:
-            rows = con.execute(
-                "SELECT DISTINCT COALESCE(NULLIF(profile_name, ''), 'default') "
-                "FROM sessions WHERE title = 'Bot Chat' AND hidden = 1"
-            ).fetchall()
-        finally:
-            con.close()
-    except Exception:
-        logger.debug("bot_mesh: list_bot_chat_profiles failed", exc_info=True)
-        return set()
-    return {str(r[0]) for r in rows}
+            from api.profiles import list_profiles_api
+            names = [str(r.get("name") or "").strip() for r in (list_profiles_api() or [])]
+        except Exception:
+            logger.debug("bot_mesh: list_profiles_api failed", exc_info=True)
+            names = []
+    return {n for n in names if n and bot_chat_exists(n)}
 
 
 def _parse_tool_calls(raw: str | None) -> list[dict]:
@@ -172,7 +171,7 @@ def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
     if session is None:
         return {"exists": False, "session_id": None, "turns": []}
 
-    db_path = _state_db_path()
+    db_path = profile_db_path(profile)
     turns: list[dict] = []
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)

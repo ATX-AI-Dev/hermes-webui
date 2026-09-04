@@ -38,14 +38,27 @@ _PROFILE_ROWS = [
 ]
 
 
-def _patch(monkeypatch, *, base_home=None, rows=None):
+def _patch(monkeypatch, *, base_home=None, rows=None, profile_homes=None):
+    """profile_homes: optional {name: Path}. Each profile has its OWN state.db
+    (confirmed live 2026-09-04: no shared database) — get_hermes_home_for_profile
+    is what every per-profile read goes through, so tests fake it directly."""
     from api import bots_overview, profiles
 
     monkeypatch.setattr(profiles, "list_profiles_api", lambda: list(rows if rows is not None else _PROFILE_ROWS))
+    homes = dict(profile_homes or {})
+    fallback_root = base_home if base_home is not None else None
+
+    def _fake_home(name):
+        if name in homes:
+            return homes[name]
+        if fallback_root is not None:
+            return fallback_root / "profiles" / name  # no state.db there -> stats/has_bot_chat stay absent
+        raise RuntimeError("no home configured for " + str(name))
+
+    monkeypatch.setattr(profiles, "get_hermes_home_for_profile", _fake_home)
     if base_home is not None:
         monkeypatch.setattr(profiles, "_resolve_base_hermes_home", lambda: base_home)
     else:
-        # No usable base home -> session scan returns {} (still a valid payload).
         monkeypatch.setattr(profiles, "_resolve_base_hermes_home", lambda: (_ for _ in ()).throw(RuntimeError("no home")))
     bots_overview.invalidate_cache()
     return bots_overview
@@ -73,13 +86,18 @@ def test_unknown_profile_lands_in_autre(monkeypatch):
     assert rnd["parent"] is None
 
 
-def test_counts_reflect_gateways_and_sessions(monkeypatch, tmp_path):
-    _make_state_db(tmp_path, [
-        ("lancelot", None, "2026-09-04T10:00:00"),
-        ("lancelot", "2026-09-01T00:00:00", "2026-08-30T08:00:00"),  # ended: counts for last_activity, not for `active`
-        ("bohorth", None, "2026-09-03T09:00:00"),
+def test_counts_reflect_gateways_and_sessions_from_each_profiles_own_db(monkeypatch, tmp_path):
+    lancelot_home = tmp_path / "lancelot"
+    bohorth_home = tmp_path / "bohorth"
+    lancelot_home.mkdir()
+    bohorth_home.mkdir()
+    _make_profile_db(lancelot_home, [
+        (None, "2026-09-04T10:00:00"),
+        ("2026-09-01T00:00:00", "2026-08-30T08:00:00"),  # ended: counts for last_activity, not for `active`
     ])
-    bo = _patch(monkeypatch, base_home=tmp_path)
+    _make_profile_db(bohorth_home, [(None, "2026-09-03T09:00:00")])
+    # yvain / some-random-profile: no state.db at all -> zeros, no crash.
+    bo = _patch(monkeypatch, profile_homes={"lancelot": lancelot_home, "bohorth": bohorth_home})
     payload = bo.build_bots_overview(use_cache=False)
 
     assert payload["counts"]["total"] == len(_PROFILE_ROWS)
@@ -88,7 +106,23 @@ def test_counts_reflect_gateways_and_sessions(monkeypatch, tmp_path):
     assert by_id["lancelot"]["active_sessions"] == 1  # the ended one is excluded
     assert by_id["lancelot"]["last_activity"] == "2026-09-04T10:00:00"
     assert by_id["bohorth"]["active_sessions"] == 1
+    assert by_id["yvain"]["active_sessions"] == 0
     assert payload["counts"]["active_sessions"] == 2
+
+
+def test_a_profile_without_its_own_db_does_not_leak_another_profiles_sessions(monkeypatch, tmp_path):
+    """Regression: an earlier revision read one shared state.db and attributed
+    every profile's sessions to whichever profile happened to own that file.
+    lancelot's sessions must never appear under bohorth."""
+    lancelot_home = tmp_path / "lancelot"
+    lancelot_home.mkdir()
+    _make_profile_db(lancelot_home, [(None, "2026-09-04T10:00:00"), (None, "2026-09-04T10:05:00")])
+    bo = _patch(monkeypatch, profile_homes={"lancelot": lancelot_home})
+    payload = bo.build_bots_overview(use_cache=False)
+    by_id = {b["id"]: b for b in payload["bots"]}
+    assert by_id["lancelot"]["active_sessions"] == 2
+    assert by_id["bohorth"]["active_sessions"] == 0
+    assert by_id["bohorth"]["last_activity"] is None
 
 
 def test_bots_are_sorted_by_branch_then_order(monkeypatch):
@@ -137,15 +171,16 @@ def test_route_returns_payload(monkeypatch):
     assert data["counts"]["total"] == len(_PROFILE_ROWS)
 
 
-def _make_state_db(base_dir, session_rows):
-    """session_rows: list of (profile_name, ended_at, last_activity_at)."""
-    db = sqlite3.connect(base_dir / "state.db")
+def _make_profile_db(home_dir, session_rows):
+    """session_rows: list of (ended_at, last_activity_at) — this db already
+    belongs to one profile, no profile_name column needed."""
+    db = sqlite3.connect(home_dir / "state.db")
     db.execute(
-        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, profile_name TEXT, "
-        "ended_at TEXT, last_activity_at TEXT, archived INTEGER DEFAULT 0)"
+        "CREATE TABLE sessions (id INTEGER PRIMARY KEY, ended_at TEXT, "
+        "last_activity_at TEXT, archived INTEGER DEFAULT 0)"
     )
     db.executemany(
-        "INSERT INTO sessions (profile_name, ended_at, last_activity_at) VALUES (?, ?, ?)",
+        "INSERT INTO sessions (ended_at, last_activity_at) VALUES (?, ?)",
         session_rows,
     )
     db.commit()
