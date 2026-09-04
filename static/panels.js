@@ -6713,9 +6713,11 @@ async function loadBotsPanel(fresh) {
         ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="chat" aria-expanded="false">${esc(t('bots_thread'))}</button>`
         : '';
       html += `<div class="bots-row${child}">
-        <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
-        <span class="bots-id">${esc(bot.id)}</span>
-        <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
+        <span class="bots-row-id">
+          <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
+          <span class="bots-id">${esc(bot.id)}</span>
+          <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
+        </span>
         <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
         <span class="bots-actions">
           <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>
