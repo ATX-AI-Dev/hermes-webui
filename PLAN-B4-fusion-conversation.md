@@ -6,9 +6,23 @@
 > doit continuer ce même flux** — pas une session WebUI séparée de plus. Confirmé par Ludo :
 > fusion complète lecture + écriture, effort accepté (plusieurs semaines, risque de divergence).
 
-**Ne pas coder avant d'avoir vérifié la piste ci-dessous en live sur `.178`.** Ce qui suit est
-un cadrage, pas une implémentation — B1/B2/B3 ont chacun montré qu'une hypothèse d'architecture
-non vérifiée (« state.db partagé ») coûte cher une fois codée puis testée en prod.
+> **Validé en conditions réelles le 04/09/2026.** Prototype `feat/b4-continue-prototype`
+> (bouton « Continuer » sur `lancelot`) testé live sur `.178` (instance jetable `:8791`,
+> vrai venv agent) : import de la session « Bot Chat » réussi (`import_cli_session` +
+> `get_cli_session_messages`, tous deux déjà profil-scopés), tour WebUI écrit dans la
+> **même** `session_id` (`message_count` 743→745, `last_activity_at` à l'heure du test),
+> **`message_agent` appelé avec succès depuis WebUI** (envoi à `@bohorth`), **réponse
+> asynchrone livrée dans la même session**, et le **cron de rattrapage a vu et confirmé le
+> même échange dans le même fil juste après** — cron et WebUI cohabitent sans conflit sur ce
+> test. Les deux questions décisives (§3.1 pilotage, §3.2 injection de `message_agent`) sont
+> **résolues : oui aux deux**. Reste §3.3 (Telegram/cron partagent-ils ce `session_id` ou pas)
+> et le risque de verrou « already has a live owner » observé une fois dans l'historique
+> (deux surfaces CLI en collision, pas WebUI — à surveiller, pas encore reproduit avec WebUI).
+
+**Ne pas coder la version définitive avant d'avoir statué sur la portée finale (voir §7).** Ce
+qui suit reste par ailleurs un bon compte-rendu de la démarche — B1/B2/B3 ont chacun montré
+qu'une hypothèse d'architecture non vérifiée (« state.db partagé ») coûte cher une fois codée
+puis testée en prod ; ça a payé de vérifier avant de généraliser ici aussi.
 
 ---
 
@@ -112,7 +126,27 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
 - **Phase 4, seulement si §3.3 confirme des `session_id` séparés par canal** : vue de lecture
   composée multi-sessions (mérite son propre chiffrage — pas engagée sans confirmation).
 
-## 6. Ce qui ne change pas
+## 6. Prochaines étapes (après validation live du 04/09/2026)
+
+1. **Généraliser** : remplacer « Open thread » par « Continuer » comme point d'entrée unique
+   d'un bot dans le panneau Bots (un seul bouton, plus de choix entre les deux). « Fil
+   inter-bots » (lecture seule) reste utile comme aperçu rapide sans quitter le panneau.
+2. **Rendu riche par type de tour** dans la vraie vue de chat (pas seulement mon viewer B3) :
+   les tours `tool_name=message_agent` doivent s'afficher avec la carte dédiée déjà conçue en
+   B3b (cible, message, état), pas comme un tool-call générique — ça veut dire étendre le
+   renderer de `static/ui.js`/`messages.js`, pas seulement celui du panneau Bots.
+3. **§3.3 à vérifier** : Telegram et les tours cron écrivent-ils dans ce même `session_id` pour
+   tous les bots, ou seulement pour certains (le cas testé, `lancelot`, a un cron de rattrapage
+   dédié — les bots sans gateway permanent n'ont peut-être pas cette propriété) ?
+4. **Robustesse du verrou « live owner »** : que doit voir Ludo si WebUI tente d'écrire pendant
+   qu'un cron/CLI tient déjà la session (collision réelle, pas juste observée dans l'historique) ?
+   Un message d'erreur clair côté WebUI, pas un échec silencieux.
+5. **Nettoyage** : le prototype (`api/bot_mesh.py::continue_bot_chat_prototype`,
+   `POST /api/bot-chat/continue`) est fonctionnel mais nommé/documenté comme un probe — à
+   renommer/consolider une fois la portée définitive actée (retrait du mot « prototype » du
+   bouton, de l'i18n, etc.).
+
+## 7. Ce qui ne change pas
 
 - Palier B (B1–B3) reste en l'état, déployé, ne se défait pas — B4 en est la suite naturelle,
   pas un remplacement.
