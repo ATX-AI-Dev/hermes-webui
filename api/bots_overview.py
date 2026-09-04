@@ -137,6 +137,12 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
     hmap: dict[str, dict] = hierarchy.get("profiles") or {}
     sessions = _sessions_by_profile()
     branch_rank = _branch_order(hierarchy)
+    try:
+        from api.bot_mesh import list_bot_chat_profiles
+        bot_chat_profiles = list_bot_chat_profiles()
+    except Exception:
+        logger.debug("bots_overview: list_bot_chat_profiles failed", exc_info=True)
+        bot_chat_profiles = set()
 
     bots: list[dict] = []
     for r in rows:
@@ -164,6 +170,7 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
                 "is_active": bool(r.get("is_active")),
                 "active_sessions": sess.get("active", 0),
                 "last_activity": sess.get("last_activity"),
+                "has_bot_chat": name in bot_chat_profiles,
             }
         )
 

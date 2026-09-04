@@ -14726,6 +14726,24 @@ def handle_get(handler, parsed) -> bool:
         return _handle_memory_read(handler, parsed)
 
     # ── Profile API (GET) ──
+    # ── Bot Chat transcript (GET) — palier B / B3, read-only ──
+    if parsed.path == "/api/bot-chat":
+        try:
+            from api.bot_mesh import read_bot_chat_transcript
+            from api.profiles import _PROFILE_ID_RE
+            qs = parse_qs(parsed.query)
+            _bc_profile = (qs.get("profile", [""])[0] or "").strip()
+            if not _bc_profile or not _PROFILE_ID_RE.fullmatch(_bc_profile):
+                return bad(handler, "invalid profile", 400)
+            try:
+                _bc_limit = max(1, min(200, int((qs.get("limit", ["60"])[0] or "60").strip())))
+            except ValueError:
+                _bc_limit = 60
+            return j(handler, read_bot_chat_transcript(_bc_profile, limit=_bc_limit))
+        except Exception as exc:
+            logger.exception("bot-chat transcript failed")
+            return bad(handler, _sanitize_error(exc), status=500)
+
     # ── Bots overview (GET) — palier B / B2 ──
     if parsed.path == "/api/bots":
         try:
