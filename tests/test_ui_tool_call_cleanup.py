@@ -863,7 +863,7 @@ class TestToolCardDesignTokens:
         assert "tool-card-name-label" in build and "tool-card-name-generic" in build
         assert "tool-card-detail-lead" in build
         assert "_toolDetailLeadText(toolKind,tc)" in build
-        assert "const visibleArgs=(detailLeadText&&toolKind==='shell')?[]:argsEntries;" in build
+        assert "const visibleArgs=(detailLeadText&&(toolKind==='shell'||toolKind==='relay'))?[]:argsEntries;" in build
 
     def test_worklog_thinking_card_uses_quiet_tool_row_hierarchy(self):
         selector = ".tool-worklog-list > .agent-activity-thinking .thinking-card,"

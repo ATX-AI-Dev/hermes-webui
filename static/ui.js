@@ -18213,7 +18213,32 @@ function _toolDisplayName(tc){
   if(name==='delegate_task') return 'Delegate task';
   if(name==='skill_view') return 'Skill';
   if(name==='skill_manage') return 'Skill';
+  if(name==='message_agent'||name==='bot_mode_dm') return 'Message agent';
   return name;
+}
+// message_agent/bot_mode_dm is the inter-bot mesh transport (see
+// api/bot_mesh.py — same tool names it recognizes as a "relay" call). Only
+// ever appears inside a profile's canonical Bot Chat session; gets its own
+// tool-card treatment (target bot + message body) instead of the generic
+// unknown-tool fallback, mirroring the Bots-panel "Fil inter-bots" card.
+const _RELAY_TOOL_NAMES=new Set(['message_agent','bot_mode_dm']);
+function _isRelayToolCall(tc){
+  return _RELAY_TOOL_NAMES.has(String(tc&&tc.name||''));
+}
+// The tool result for a relay call is JSON like {"status":"sent","to":"@x",
+// "detail":"..."} or {"error":"..."} — this is the synchronous dispatch ack,
+// NOT the peer's reply (message_agent is fire-and-forget; the real reply, if
+// any, arrives later as its own separate turn). Parse it into a short status
+// word for the card preview instead of showing raw JSON.
+function _relayAckStatus(tc){
+  const raw=String((tc&&(tc.snippet||tc.result||tc.output))||'').trim();
+  if(!raw) return tc&&tc.done===false?'':'';
+  let ack=null;
+  try{ ack=JSON.parse(raw); }catch(_){ return ''; }
+  if(!ack||typeof ack!=='object') return '';
+  if(ack.error) return _shortToolLabel(String(ack.error),80);
+  if(ack.status) return String(ack.status).replace(/^./,c=>c.toUpperCase());
+  return '';
 }
 
 // Activity-summary detection for persisted memory/skill writes (#3340, #3544).
@@ -18294,6 +18319,7 @@ function _toolPathBasename(value){
 function _toolActionKind(tc){
   const n=String(tc&&tc.name||'').toLowerCase().replace(/[^a-z0-9]+/g,'_');
   if(!n) return 'unknown';
+  if(n==='message_agent'||n==='bot_mode_dm') return 'relay';
   if(n==='subagent_progress'||n==='delegate_task') return 'delegate';
   if(n.includes('skill')) return 'skill';
   if(n.includes('memory')) return 'memory';
@@ -18316,6 +18342,7 @@ function _toolKindIcon(kind){
     skill:'book-open',
     memory:'brain',
     delegate:'bot',
+    relay:'message-square',
     unknown:'wrench',
   };
   return li(icons[kind]||icons.unknown,14);
@@ -18327,6 +18354,7 @@ function _toolTargetLabel(tc){
   if(kind==='shell') raw=a.cmd||a.command||tc.command||tc.raw_command||tc.original_command||tc.display_command||'';
   else if(kind==='skill') raw=a.name||a.skill||'';
   else if(kind==='memory') raw=a.target||a.name||a.action||'';
+  else if(kind==='relay') raw=a.target||'';
   else if(kind==='read'||kind==='write') raw=a.path||a.file_path||a.file||a.target||a.name||'';
   else if(kind==='search'||kind==='web') raw=a.query||a.pattern||a.url||a.uri||'';
   else raw=a.cmd||a.command||a.path||a.file_path||a.file||a.uri||a.url||a.query||a.pattern||a.dir||a.task||a.name||'';
@@ -18410,6 +18438,7 @@ function _toolActionLabelText(tc, opts){
       skill:{running:'Loading',done:'Loaded',fallback:'a skill'},
       memory:{running:'Saving',done:'Saved',fallback:'memory'},
       delegate:{running:'Delegating',done:'Delegated',fallback:'a task'},
+      relay:{running:'Messaging',done:'Messaged',fallback:'a bot'},
       unknown:{running:'Running',done:'Ran',fallback:disp||'a tool'},
     };
     const v=verbs[k]||verbs.unknown;
@@ -18422,7 +18451,7 @@ function _toolActionLabelText(tc, opts){
 function _toolActionLabel(tc){
   return esc(_toolActionLabelText(tc,{limit:112}));
 }
-const _toolWorklogSummaries={shell:{},read:{},list:{},search:{},web:{},write:{},skill:{},memory:{},delegate:{},unknown:{}};
+const _toolWorklogSummaries={shell:{},read:{},list:{},search:{},web:{},write:{},skill:{},memory:{},delegate:{},relay:{},unknown:{}};
 function _toolWorklogSummaryLine(kind, state, count){
   const n=Math.max(1,Number(count)||1);
   return _toolI18n('tool_worklog_summary',(k,s,c)=>{
@@ -18436,6 +18465,7 @@ function _toolWorklogSummaryLine(kind, state, count){
       skill:{running:['Loading a skill','Loading {n} skills'],done:['Loaded a skill','Loaded {n} skills']},
       memory:{running:['Saving memory','Saving {n} memory updates'],done:['Saved memory','Saved {n} memory updates']},
       delegate:{running:['Delegating a task','Delegating {n} tasks'],done:['Delegated a task','Delegated {n} tasks']},
+      relay:{running:['Messaging a bot','Messaging {n} bots'],done:['Messaged a bot','Messaged {n} bots']},
       unknown:{running:['Running a tool','Running {n} tools'],done:['Ran a tool','Ran {n} tools']},
     };
     const pair=((forms[k]||forms.unknown)[s]||forms.unknown.running);
@@ -18616,6 +18646,8 @@ function toolIcon(name){
     cronjob:         li('clock'),
     delegate_task:   li('bot'),
     send_message:    li('message-square'),
+    message_agent:   li('message-square'),
+    bot_mode_dm:     li('message-square'),
     browser_navigate:li('globe'),
     vision_analyze:  li('eye'),
     subagent_progress:li('shuffle'),
@@ -18701,10 +18733,15 @@ function _toolCardAllowsDetail(kind, tc){
 function _toolDetailLeadLabel(kind){
   if(kind==='shell') return 'Shell';
   if(kind==='write') return 'Target';
+  if(kind==='relay') return 'Message';
   return 'Input';
 }
 function _toolDetailLeadText(kind, tc){
   const target=_toolTargetLabel(tc);
+  if(kind==='relay'){
+    const message=String((tc&&tc.args&&tc.args.message)||'').trim();
+    return message;
+  }
   if(kind==='shell'){
     // Expanded card shows the FULL multi-line command, not just the header's
     // first line (#4926). Fall back to the first-line target if full is empty.
@@ -18756,12 +18793,13 @@ function buildToolCard(tc){
   let previewText=_toolCardPreviewText(tc, displaySnippet);
   const argPreview=_formatToolArgPreview(tc&&tc.args);
   if(toolKind==='shell'||previewText===argPreview||previewText==='Completed'||previewText==='Running'||previewText==='Failed') previewText='';
+  if(toolKind==='relay') previewText=typeof _relayAckStatus==='function'?_relayAckStatus(tc):'';
   if(isSubagent) previewText=previewText.replace(/^(?:\u{1F500}|↳)\s*/u,'');
   const detailLeadText=hasDetail&&typeof _toolDetailLeadText==='function'?_toolDetailLeadText(toolKind,tc):'';
   const detailLeadLabel=typeof _toolDetailLeadLabel==='function'?_toolDetailLeadLabel(toolKind):(toolKind==='shell'?'Shell':'Input');
   const detailLead=detailLeadText?`<div class="tool-card-detail-lead"><div class="tool-card-detail-lead-label">${esc(detailLeadLabel)}</div><pre>${esc(detailLeadText)}</pre></div>`:'';
   const argsEntries=tc.args&&Object.keys(tc.args).length?Object.entries(tc.args):[];
-  const visibleArgs=(detailLeadText&&toolKind==='shell')?[]:argsEntries;
+  const visibleArgs=(detailLeadText&&(toolKind==='shell'||toolKind==='relay'))?[]:argsEntries;
   row.innerHTML=`
     <div class="${cardClass}">
       <div class="tool-card-header"${headerClick}>
@@ -18914,6 +18952,7 @@ function _activityProgressLabelForToolName(name){
   if(key.includes('terminal')||key.includes('shell')||key.includes('command')||key.includes('process')) return 'Running command';
   if(key.includes('web')||key.includes('fetch')||key.includes('curl')) return 'Checking web data';
   if(key.includes('todo')||key.includes('plan')) return 'Planning next steps';
+  if(key==='message_agent'||key==='bot_mode_dm') return 'Messaging a bot';
   return 'Working';
 }
 
