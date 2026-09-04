@@ -211,6 +211,90 @@ def continue_bot_chat(profile: str) -> dict:
     return {"ok": True, "session_id": sid}
 
 
+_SNIPPET_CHARS = 84
+
+
+def _snippet_from_row(role: str, content: str | None, tool_calls_raw: str | None, tool_name: str | None) -> str | None:
+    """Render one ``messages`` row as a short one-line preview, or ``None`` if
+    the row carries nothing worth showing (empty content, bare ack, system).
+
+    Mirrors the turn-classification in ``read_bot_chat_transcript`` (relay
+    call / tool call / plain text) but collapses each case to a single short
+    string instead of a structured turn, for the Bots panel's list preview.
+    """
+    if role == "assistant":
+        relay = _relay_call_from_tool_calls(_parse_tool_calls(tool_calls_raw))
+        if relay:
+            target = relay.get("target") or "?"
+            msg = (relay.get("message") or "").strip()
+            return _truncate(f"→ {target}: {msg}" if msg else f"→ {target}", _SNIPPET_CHARS)
+        text = (content or "").strip()
+        return _truncate(text, _SNIPPET_CHARS) if text else None
+    if role == "tool":
+        ok, error = _relay_ack(content)
+        if ok is not None:
+            return "✓ réponse reçue" if ok else _truncate(f"✗ {error or 'erreur'}", _SNIPPET_CHARS)
+        if tool_name:
+            text = (content or "").strip()
+            return _truncate(f"\U0001f527 {tool_name}: {text}" if text else f"\U0001f527 {tool_name}", _SNIPPET_CHARS)
+        return None
+    if role == "user":
+        text = (content or "").strip()
+        return _truncate(text, _SNIPPET_CHARS) if text else None
+    return None
+
+
+def last_bot_chat_snippet_from_connection(con: sqlite3.Connection, session_id: str, *, scan_limit: int = 8) -> str | None:
+    """Short one-line preview of the most recent renderable Bot Chat turn,
+    using an ALREADY-OPEN connection to that profile's ``state.db`` — the
+    caller (``bots_overview.build_bots_overview``) opens one connection per
+    profile for session stats already; this avoids a second open per bot.
+
+    Scans the last ``scan_limit`` rows (not just the very last one) because
+    the newest row is often a bare relay ack or an empty system row with
+    nothing to show; the first renderable row wins.
+    """
+    if not session_id:
+        return None
+    try:
+        rows = con.execute(
+            "SELECT role, content, tool_calls, tool_name FROM messages "
+            "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+            (session_id, int(scan_limit)),
+        ).fetchall()
+    except Exception:
+        logger.debug("bot_mesh: last_bot_chat_snippet_from_connection failed", exc_info=True)
+        return None
+    for row in rows:
+        role, content, tool_calls_raw, tool_name = row[0], row[1], row[2], row[3]
+        snippet = _snippet_from_row(role, content, tool_calls_raw, tool_name)
+        if snippet:
+            return snippet
+    return None
+
+
+def last_bot_chat_snippet(profile: str) -> str | None:
+    """Standalone version of ``last_bot_chat_snippet_from_connection`` that
+    opens its own read-only connection. Use the connection-based variant
+    instead when a connection to that profile's ``state.db`` is already open.
+    """
+    session = find_bot_chat_session(profile)
+    if session is None:
+        return None
+    db_path = profile_db_path(profile)
+    if db_path is None:
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            return last_bot_chat_snippet_from_connection(con, session["session_id"])
+        finally:
+            con.close()
+    except Exception:
+        logger.debug("bot_mesh: last_bot_chat_snippet failed for %s", profile, exc_info=True)
+        return None
+
+
 def bot_chat_state_db_message_count(profile: str, session_id: str) -> int | None:
     """Cheap ``COUNT(*)`` of ``session_id``'s rows in the profile's live
     ``state.db`` — no content read, just the row count. Returns ``None`` if

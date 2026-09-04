@@ -111,6 +111,7 @@ def _sessions_for_one_profile(name: str) -> dict | None:
                 "       MAX(last_activity_at) AS last "
                 "FROM sessions WHERE COALESCE(archived, 0) = 0"
             ).fetchone()
+            preview = _last_message_preview_on_connection(con, name)
         finally:
             con.close()
     except Exception:
@@ -118,7 +119,30 @@ def _sessions_for_one_profile(name: str) -> dict | None:
         return None
     if not row:
         return None
-    return {"active": int(row[0] or 0), "last_activity": row[1]}
+    return {"active": int(row[0] or 0), "last_activity": row[1], "last_message_preview": preview}
+
+
+def _last_message_preview_on_connection(con: sqlite3.Connection, name: str) -> str | None:
+    """Short preview of the bot's most recent Bot Chat turn, reusing the
+    ``state.db`` connection ``_sessions_for_one_profile`` already opened for
+    that profile rather than opening a second one just for this.
+    """
+    try:
+        bot_chat_row = con.execute(
+            "SELECT id FROM sessions WHERE title = 'Bot Chat' AND hidden = 1 "
+            "ORDER BY last_activity_at DESC LIMIT 1"
+        ).fetchone()
+    except Exception:
+        logger.debug("bots_overview: bot chat lookup failed for %s", name, exc_info=True)
+        return None
+    if not bot_chat_row:
+        return None
+    try:
+        from api.bot_mesh import last_bot_chat_snippet_from_connection
+        return last_bot_chat_snippet_from_connection(con, bot_chat_row[0])
+    except Exception:
+        logger.debug("bots_overview: snippet read failed for %s", name, exc_info=True)
+        return None
 
 
 def _sessions_by_profile(names: list[str]) -> dict[str, dict]:
@@ -137,9 +161,10 @@ def _branch_order(hierarchy: dict) -> dict[str, int]:
 def build_bots_overview(*, use_cache: bool = True) -> dict:
     """Return ``{"bots": [...], "branches": [...], "generated_at": <epoch>}``.
 
-    Each bot: ``id, role, description, branch, parent, manager, tag,
-    permanent_gateway, gateway_running, model, skill_count, is_active,
-    is_known (in the hierarchy map), active_sessions, last_activity``.
+    Each bot: ``id, role, description, emoji, color, branch, parent, manager,
+    tag, permanent_gateway, gateway_running, model, skill_count, is_active,
+    is_known (in the hierarchy map), active_sessions, last_activity,
+    last_message_preview``.
     """
     now = time.time()
     if use_cache and _CACHE["payload"] is not None and (now - _CACHE["at"]) < _CACHE_TTL:
@@ -176,6 +201,8 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
                 "id": name,
                 "role": h.get("role") or _profile_description(r.get("path") or "") or "",
                 "description": _profile_description(r.get("path") or ""),
+                "emoji": h.get("emoji"),
+                "color": h.get("color"),
                 "branch": h.get("branch") or "autre",
                 "parent": h.get("parent"),
                 "manager": bool(h.get("manager")),
@@ -190,6 +217,7 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
                 "is_active": bool(r.get("is_active")),
                 "active_sessions": sess.get("active", 0),
                 "last_activity": sess.get("last_activity"),
+                "last_message_preview": sess.get("last_message_preview"),
                 "has_bot_chat": name in bot_chat_profiles,
             }
         )

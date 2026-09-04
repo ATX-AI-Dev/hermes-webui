@@ -7341,11 +7341,18 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
    column (not the wide main content area), so a row must be free to break
    onto 2-3 lines rather than truncate its own action buttons (#lancelot
    "Stop gateway" clipped — reported 2026-09-04). */
-.bots-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: 4px; column-gap: 8px;
+.bots-row { display: flex; align-items: flex-start; gap: 8px;
   padding: 7px 6px; border-top: 1px solid var(--border-subtle); }
 .bots-row:first-of-type { border-top: 0; }
 .bots-row--child { padding-left: 20px; }
+.bots-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; color: #fff; margin-top: 1px; }
+.bots-row-main { display: flex; flex-wrap: wrap; align-items: center; row-gap: 4px; column-gap: 8px;
+  flex: 1; min-width: 0; }
 .bots-row-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 100%; }
+.bots-preview { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--muted); font-size: 11.5px; opacity: .85; }
 .bots-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .5; flex: none; }
 .bots-dot.up { background: #3fb96f; opacity: 1; box-shadow: 0 0 0 3px rgba(63,185,111,.16); }
 .bots-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; flex: none; }

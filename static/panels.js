@@ -457,6 +457,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
   if (nextPanel === 'bots') await loadBotsPanel();
+  else if (typeof _stopBotsPanelPoll === 'function') _stopBotsPanelPoll();
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
@@ -6668,6 +6669,46 @@ function _botsRelTimeMs(ts) {
 }
 const _botsChatLoaded = new Set();
 
+// Fallback palette for bots not (yet) declared with an emoji/color in
+// bots_hierarchy.json — a stable hash on the bot id picks one of these so a
+// given bot always gets the same fallback color across reloads.
+const _BOTS_AVATAR_FALLBACK_PALETTE = [
+  '#3a4fb0', '#2fb3a6', '#c0392b', '#8e44ad', '#4a9d5c',
+  '#d9a53c', '#c0397f', '#2f9e8f', '#7c5fc0', '#3f9142',
+];
+function _botsAvatarFallbackColor(id) {
+  let h = 0;
+  const s = String(id || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return _BOTS_AVATAR_FALLBACK_PALETTE[h % _BOTS_AVATAR_FALLBACK_PALETTE.length];
+}
+function _botAvatarHTML(bot) {
+  const color = bot.color || _botsAvatarFallbackColor(bot.id);
+  const glyph = bot.emoji || (String(bot.id || '?').charAt(0).toUpperCase());
+  return `<span class="bots-avatar" style="background:${esc(color)}" aria-hidden="true">${esc(glyph)}</span>`;
+}
+
+// Panel-local poll: refreshes the Bots list every ~15s while the Bots panel
+// is the active panel and the tab is visible, so avatars' live-activity
+// preview updates without a manual refresh. Independent from the
+// session-specific external-refresh poll in sessions.js (da1f2323), which is
+// scoped to a single open CLI/Bot-Chat session via GET /api/session, not
+// this multi-profile list.
+let _botsPollTimer = null;
+function _ensureBotsPanelPoll() {
+  if (_botsPollTimer) return;
+  _botsPollTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (typeof _currentPanel !== 'undefined' && _currentPanel !== 'bots') return;
+    loadBotsPanel(true);
+  }, 15000);
+}
+function _stopBotsPanelPoll() {
+  if (!_botsPollTimer) return;
+  clearInterval(_botsPollTimer);
+  _botsPollTimer = null;
+}
+
 async function loadBotsPanel(fresh) {
   const panel = $('botsPanel');
   if (!panel) return;
@@ -6675,6 +6716,14 @@ async function loadBotsPanel(fresh) {
     _botsDelegderBound = true;
     panel.addEventListener('click', _botsOnClick);
   }
+  _ensureBotsPanelPoll();
+  // Bot Chat accordions the user already expanded should stay open across a
+  // poll-driven re-render instead of silently collapsing under them.
+  const openChats = new Set();
+  panel.querySelectorAll('.bots-chat:not([hidden])').forEach(box => {
+    const id = box.getAttribute('data-chat-for');
+    if (id) openChats.add(id);
+  });
   try {
     const data = await api('/api/bots' + (fresh ? '?fresh=1' : ''));
     const bots = Array.isArray(data.bots) ? data.bots : [];
@@ -6721,17 +6770,23 @@ async function loadBotsPanel(fresh) {
       const primaryBtn = bot.has_bot_chat
         ? `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="continue">${esc(t('bots_continue'))}</button>`
         : `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>`;
+      const preview = bot.last_message_preview
+        ? `<span class="bots-preview">${esc(bot.last_message_preview)}</span>` : '';
       html += `<div class="bots-row${child}">
-        <span class="bots-row-id">
-          <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
-          <span class="bots-id">${esc(bot.id)}</span>
-          <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
-        </span>
-        <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
-        <span class="bots-actions">
-          ${primaryBtn}
-          ${chatBtn}
-          ${gwBtn}
+        ${_botAvatarHTML(bot)}
+        <span class="bots-row-main">
+          <span class="bots-row-id">
+            <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
+            <span class="bots-id">${esc(bot.id)}</span>
+            <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
+          </span>
+          ${preview}
+          <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
+          <span class="bots-actions">
+            ${primaryBtn}
+            ${chatBtn}
+            ${gwBtn}
+          </span>
         </span>
       </div>`;
       if (bot.has_bot_chat) {
@@ -6740,6 +6795,11 @@ async function loadBotsPanel(fresh) {
     }
     panel.innerHTML = html;
     _botsChatLoaded.clear(); // the accordion DOM nodes above are fresh; re-fetch on next open
+    // Restore accordions the user had open before this (poll-driven) re-render.
+    openChats.forEach(id => {
+      const btn = panel.querySelector(`[data-act="chat"][data-bot="${CSS.escape(id)}"]`);
+      _botsToggleChat(id, btn);
+    });
   } catch (e) {
     panel.innerHTML = `<div style="padding:16px;color:var(--danger,#c0392b);font-size:12px">${esc(String(e && e.message || e))}</div>`;
   }
