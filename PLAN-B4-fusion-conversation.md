@@ -162,10 +162,32 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    **Toujours non couvert** : un bot « à la demande » (gateway arrêté) pour le tour complet —
    seul l'import a été testé pour ceux-là, pas l'envoi d'un vrai tour (aurait exigé de démarrer
    son gateway). Voir points 3 et 4 ci-dessous, toujours ouverts.
-2. **Rendu riche par type de tour** dans la vraie vue de chat (pas seulement mon viewer B3) :
-   les tours `tool_name=message_agent` doivent s'afficher avec la carte dédiée déjà conçue en
-   B3b (cible, message, état), pas comme un tool-call générique — ça veut dire étendre le
-   renderer de `static/ui.js`/`messages.js`, pas seulement celui du panneau Bots.
+2. **✅ Fait le 04/09/2026 (session suivante)** : les tours `message_agent`/`bot_mode_dm` ont
+   maintenant leur propre traitement dans `static/ui.js` (`_toolActionKind` → nouveau kind
+   `relay`), au lieu de tomber dans la carte générique « unknown » (icône clé à molette, JSON
+   brut) : icône dédiée (`message-square`), bot cible affiché comme label/preview au lieu d'une
+   paire d'arguments brute, corps du message affiché comme detail-lead déplié au lieu d'être
+   noyé dans la liste d'args, et statut de l'ack (`sent`/erreur) extrait du JSON brut pour
+   l'aperçu replié de la vue « tool-card » standard (`_relayAckStatus`).
+
+   **Validé en live sur `.178`** contre la vraie Bot Chat de `lancelot` (qui contenait déjà
+   plusieurs appels `message_agent` des validations précédentes) : la vue « transparent stream »
+   utilisée pour les sessions Bot Chat/CLI importées récupère automatiquement la nouvelle icône
+   et le couple cible/message via les mêmes helpers partagés (`_toolActionKind`,
+   `_toolTargetLabel`, `_toolDetailLeadText`) — aucune modification supplémentaire nécessaire
+   côté rendu « transparent ». Confirmé par inspection DOM directe (icône SVG bulle de message,
+   `data-tool-kind="relay"`, aperçu replié = nom du bot cible, détail déplié = corps du message).
+
+   9 tests unitaires ajoutés (`tests/test_message_agent_tool_card.py`, exécution réelle sous
+   node des helpers extraits de `static/ui.js`, même pattern que
+   `test_issue4926_shell_full_command.py`) : classification `relay`, extraction cible/message,
+   nom affiché, statut d'ack (sent/erreur/absent).
+
+   **Non fait** : les tours entrants « Message from X (@x): ... » (texte utilisateur simple,
+   pas un tool-call) n'ont pas de traitement visuel dédié — ils restent des bulles de texte
+   normales. Les captures Hermes Desktop du §1 montrent aussi des cartes « Message from X » /
+   « Replied to X » dépliables pour CES tours-là ; ce serait un chantier distinct (toucher le
+   rendu des bulles de texte utilisateur, pas seulement les tool-cards), pas engagé ici.
 3. **§3.3 à vérifier** : Telegram et les tours cron écrivent-ils dans ce même `session_id` pour
    tous les bots, ou seulement pour certains (le cas testé, `lancelot`, a un cron de rattrapage
    dédié — les bots sans gateway permanent n'ont peut-être pas cette propriété) ?
