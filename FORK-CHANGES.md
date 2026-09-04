@@ -96,3 +96,84 @@ Démarrer/Arrêter par bot (via B1) et « Ouvrir le fil » (bascule de profil).
 - À valider sur `.178` : `./scripts/test.sh tests/test_bots_overview_b2.py
   tests/test_bots_panel_frontend_b2.py tests/test_gateway_multiprofile_b1.py -v` + run complet
   + inspection visuelle du panneau.
+
+### Validé (run complet `.178`, 04/09/2026)
+
+14996 passed / 10 failed sur la suite entière (13 min). Les 10 échecs ne touchent ni B1 ni B2 :
+2 `test_tls_aware_probe` préexistants (confirmé sur arbre sans nos modifs suivies —
+`health_probe.sh` renvoie 1, problème shell/openssl de `.178`) + 8 flakes d'ordonnancement de
+la grande suite (`test_passkey_auth`, `test_issue3825_oidc_auth`, `test_issue803`,
+`test_issue2929_settings_max_tokens`) qui **passent tous en isolation**.
+
+**Déployé** : `feat/b2-bots-panel` poussé sur `ATX-AI-Dev/hermes-webui` (commits réécrits sur
+l'email noreply GitHub pour passer GH007). `.178` à repointer sur ce remote (voir §6).
+
+---
+
+## B3 — vue « Bot Chat » + carte d'échange inter-bots
+
+**Branche** : `feat/b3-bot-chat-viewer` (part de `feat/b2-bots-panel`).
+**Objectif** : rendre visible et lisible le mesh `message_agent`, aujourd'hui invisible dans
+WebUI (session canonique « Bot Chat » masquée, `hidden=1`).
+
+### Recon préalable (voir PLAN-palier-B.md §1)
+
+Schéma réel vérifié sur `.178` : `sessions.title='Bot Chat'`, `hidden=1`, `profile_name`.
+`messages` : `role, content, tool_call_id, tool_calls (JSON), tool_name, timestamp (epoch)`.
+Un appel `message_agent` = ligne `assistant` avec `tool_calls` contenant la fonction
+`message_agent`/`bot_mode_dm`, appariée à sa ligne `tool` (accusé JSON) via `tool_call_id`.
+La réponse différée arrive comme n'importe quel tour ultérieur (pas de corrélation spéciale
+nécessaire — cas (b) du plan confirmé).
+
+### B3a — backend (commit `5142abce`)
+
+| Fichier | Rôle | Couplage amont |
+| :-- | :-- | :-- |
+| `api/bot_mesh.py` (nouveau) | `find_bot_chat_session`, `list_bot_chat_profiles`,
+  `read_bot_chat_transcript` — lecture seule directe de `state.db`, fusionne un appel relais
+  avec son accusé en un tour `relay_out` (`target`, `message`, `ok`, `error`). | Schéma SQL de
+  `state.db` (colonnes vérifiées en direct, non contractuelles côté amont). |
+| `api/routes.py` | `GET /api/bot-chat?profile=<name>&limit=<n>`, profil validé. | — |
+| `api/bots_overview.py` | `has_bot_chat` ajouté par bot (une requête de plus, lecture seule). | — |
+| `tests/test_bot_mesh_b3.py` (nouveau) | 9 tests : session absente, filtre hidden/titre,
+  fusion accusé ok/erreur, tours non-relais intacts, ordre chronologique, route, `has_bot_chat`. | — |
+
+### B3b — frontend (commit `4f9ce1bf`)
+
+Bouton « Fil inter-bots » par ligne (si `has_bot_chat`), accordéon chargé à la demande
+(`GET /api/bot-chat`), carte dédiée pour les tours `relay_out` (cible, message, état
+livré/en attente/erreur), reste du fil en texte/outil brut. 5 clés i18n × 15 locales.
+`tests/test_bot_mesh_frontend_b3.py` (3 tests grep).
+
+### Limites connues B3 (lecture seule)
+
+- **Pas d'envoi depuis WebUI.** Reste à vérifier en live si `run_agent` en processus obtient
+  l'injection de `message_agent` sur une session titrée « Bot Chat » (le gate
+  `ensure_message_agent_tool` côté agent) — tant que ce n'est pas confirmé, la vue reste
+  lecture seule par choix, pas par limitation technique constatée.
+- Le nom d'outil (`message_agent`/`bot_mode_dm`) et la forme de l'accusé JSON ne sont pas
+  contractuels côté hermes-agent — tout le couplage est isolé dans `api/bot_mesh.py`.
+- Un seul thread « Bot Chat » par profil est supporté (le seul cas observé en prod ce jour).
+
+### Validé sur `.178` puis corrigé (04/09/2026)
+
+29/29 tests ciblés OK, panneau Bots inspecté visuellement — conforme (branches, pastilles,
+compteurs, boutons). **Mais** : bouton « Fil inter-bots » absent sur `lancelot` alors qu'il a
+des appels `message_agent` en masse dans ses logs.
+
+**Cause trouvée par recon live** : `find ~/.hermes -maxdepth 3 -name state.db` → **chaque
+profil a son propre `state.db`** (`~/.hermes/profiles/<nom>/state.db`), aucune base partagée.
+`api/bot_mesh.py` et `api/bots_overview.py` ne lisaient que `~/.hermes/state.db` (celui du
+profil racine `default`) — `has_bot_chat`, `active_sessions` et `last_activity` étaient donc
+faux pour tous les profils sauf `default`. **Corrigé** (commit `94c4246d`) : chaque lecture
+résout d'abord `get_hermes_home_for_profile(profil)` et ouvre la base de CE profil. Tests
+réécrits pour donner à chaque profil sa propre base (comme en prod) + un test de non-régression
+« un profil sans base n'hérite jamais des sessions d'un autre ». Bug d'affichage additionnel
+corrigé au passage (commit `76bab0ec`) : les rangées débordaient dans le panneau latéral étroit
+(grid à colonnes fixes) — passé en flex-wrap.
+
+### Non lancé ici
+
+- Le correctif per-profile-db (`94c4246d`) et le correctif de mise en page (`76bab0ec`)
+  **n'ont pas encore été revalidés sur `.178`** — à faire avant de considérer B3 clos.
+- Les 2 vérifs live du plan restent ouvertes : pilotage depuis WebUI, fuite Pro/Perso.
