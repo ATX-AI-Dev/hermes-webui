@@ -30,7 +30,7 @@ import http.client
 import socket as _socket
 from collections import defaultdict, deque, OrderedDict
 from pathlib import Path
-from contextlib import closing
+from contextlib import closing, contextmanager
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
@@ -1201,7 +1201,33 @@ def _load_gateway_session_identity_map() -> dict[str, dict]:
     return mapping.copy()
 
 
-def _gateway_status_payload() -> dict:
+def _gateway_status_payload(profile: str | None = None) -> dict:
+    """Gateway status for the active profile, or for ``profile`` when given.
+
+    With no ``profile`` the behaviour is unchanged. With one, the whole
+    metadata/health read is scoped to that profile's Hermes home and the
+    ``running`` flag is cross-checked against the authoritative per-home probe
+    (``_check_gateway_running_for_home``). The payload gains a ``profile`` key
+    so the caller can tell which gateway it describes.
+    """
+    if not profile:
+        return _gateway_status_payload_impl()
+    with _active_profile_override(profile):
+        payload = _gateway_status_payload_impl()
+    try:
+        from api.profiles import get_hermes_home_for_profile
+        home = Path(get_hermes_home_for_profile(profile))
+        probed = _check_gateway_running_for_home(home)
+        if probed is not None:
+            payload["running"] = probed
+            payload["configured"] = bool(payload.get("configured")) or probed
+    except Exception:
+        logger.debug("per-profile gateway status probe failed for %s", profile, exc_info=True)
+    payload["profile"] = profile
+    return payload
+
+
+def _gateway_status_payload_impl() -> dict:
     import datetime
 
     identity_map = _load_gateway_session_identity_map()
@@ -1277,15 +1303,83 @@ _GATEWAY_LIFECYCLE_TIMEOUT_SECONDS = 60
 # concurrent `hermes gateway` subprocesses. Serialize them here (mirrors the
 # self-update _apply_lock pattern): a non-blocking acquire returns 409 on
 # contention rather than launching a second overlapping subprocess.
+#
+# ``_GATEWAY_ACTION_LOCK`` guards the no-profile (active-profile) path and stays
+# the module-level lock existing callers/tests reach for. When an explicit
+# ``profile`` is supplied, ``_gateway_action_lock_for`` hands out a per-profile
+# lock instead, so a start on one bot's gateway no longer blocks a stop on
+# another's — only two actions on the *same* profile still serialize.
 _GATEWAY_ACTION_LOCK = threading.Lock()
+_GATEWAY_ACTION_LOCKS: dict[str, threading.Lock] = {}
+_GATEWAY_ACTION_LOCKS_GUARD = threading.Lock()
 
 
-def _run_gateway_lifecycle_command(action: str) -> subprocess.CompletedProcess:
+def _gateway_action_lock_for(profile: str | None) -> threading.Lock:
+    """Return the single-flight lock for a gateway lifecycle action.
+
+    ``None``/empty keeps using the module-level ``_GATEWAY_ACTION_LOCK`` (the
+    active-profile path, unchanged). A concrete profile name gets its own lock.
+    """
+    if not profile:
+        return _GATEWAY_ACTION_LOCK
+    with _GATEWAY_ACTION_LOCKS_GUARD:
+        return _GATEWAY_ACTION_LOCKS.setdefault(str(profile), threading.Lock())
+
+
+@contextmanager
+def _active_profile_override(profile_name: str | None):
+    """Temporarily pin the thread-local active profile.
+
+    Lets the gateway status/lifecycle endpoints resolve a *non-active* profile's
+    Hermes home (``get_active_hermes_home`` / ``get_active_profile_name`` both
+    read this thread-local) without switching the WebUI's active profile. A
+    falsy value is a no-op. The previous value — including "unset" — is
+    restored on exit so the per-request context server.py installed survives.
+    """
+    if not profile_name:
+        yield
+        return
+    from api.profiles import _tls
+    _sentinel = object()
+    prev = getattr(_tls, "profile", _sentinel)
+    _tls.profile = profile_name
+    try:
+        yield
+    finally:
+        if prev is _sentinel:
+            try:
+                del _tls.profile
+            except AttributeError:
+                pass
+        else:
+            _tls.profile = prev
+
+
+def _check_gateway_running_for_home(home: Path):
+    """Authoritative per-home gateway probe used by the profile list.
+
+    Returns ``True``/``False`` when ``hermes_cli.profiles._check_gateway_running``
+    is importable, else ``None`` (caller keeps the metadata-derived guess). The
+    gateway pid/state files can live under the *root* home even for a
+    profile-scoped gateway (see ``api/agent_health.py``), so this cross-check
+    matters for a non-active profile's status.
+    """
+    try:
+        from hermes_cli.profiles import _check_gateway_running
+    except Exception:
+        return None
+    try:
+        return bool(_check_gateway_running(home))
+    except Exception:
+        logger.debug("per-home gateway probe failed for %s", home, exc_info=True)
+        return None
+
+
+def _run_gateway_lifecycle_command(action: str, profile: str | None = None) -> subprocess.CompletedProcess:
     if action not in {"start", "stop", "restart"}:
         raise ValueError("unsupported gateway action")
 
     from api import config as api_config
-    from api.profiles import get_active_profile_name
 
     agent_dir = getattr(api_config, "_AGENT_DIR", None)
     if not agent_dir:
@@ -1297,10 +1391,14 @@ def _run_gateway_lifecycle_command(action: str) -> subprocess.CompletedProcess:
 
     cmd = [str(getattr(api_config, "PYTHON_EXE", sys.executable)), str(main_py)]
     profile_name = ""
-    try:
-        profile_name = str(get_active_profile_name() or "").strip()
-    except Exception as exc:
-        logger.debug("Could not resolve active profile for gateway lifecycle: %s", exc)
+    if profile:
+        profile_name = str(profile).strip()
+    else:
+        try:
+            from api.profiles import get_active_profile_name
+            profile_name = str(get_active_profile_name() or "").strip()
+        except Exception as exc:
+            logger.debug("Could not resolve active profile for gateway lifecycle: %s", exc)
     if profile_name and profile_name != "default":
         cmd.extend(["--profile", profile_name])
     cmd.extend(["gateway", action])
@@ -1319,24 +1417,41 @@ def _run_gateway_lifecycle_command(action: str) -> subprocess.CompletedProcess:
 
 
 def _handle_gateway_lifecycle(handler, action: str, body: dict):
-    del body  # Reserved for future per-gateway naming without changing the route contract.
     # Reject overlapping lifecycle actions instead of spawning concurrent
     # `hermes gateway` subprocesses (a non-blocking acquire — the action holds
     # the lock for at most _GATEWAY_LIFECYCLE_TIMEOUT_SECONDS).
     if action not in {"start", "stop", "restart"}:
         return bad(handler, "unsupported gateway action", 400)
-    if not _GATEWAY_ACTION_LOCK.acquire(blocking=False):
+
+    # Optional ``profile`` in the body targets a non-active bot's gateway.
+    # Absent -> unchanged active-profile behaviour.
+    profile = None
+    if isinstance(body, dict):
+        raw_profile = str(body.get("profile") or "").strip()
+        if raw_profile:
+            from api.profiles import _PROFILE_ID_RE
+            if not _PROFILE_ID_RE.fullmatch(raw_profile):
+                return bad(handler, "invalid profile", 400)
+            profile = raw_profile
+
+    action_lock = _gateway_action_lock_for(profile)
+    if not action_lock.acquire(blocking=False):
         return j(
             handler,
             {
                 "ok": False,
                 "error": "Another gateway action is already in progress; try again shortly.",
                 "action": action,
+                **({"profile": profile} if profile else {}),
             },
             status=409,
         )
     try:
-        result = _run_gateway_lifecycle_command(action)
+        result = (
+            _run_gateway_lifecycle_command(action, profile=profile)
+            if profile
+            else _run_gateway_lifecycle_command(action)
+        )
     except ValueError as exc:
         return bad(handler, str(exc), 400)
     except FileNotFoundError as exc:
@@ -1362,7 +1477,7 @@ def _handle_gateway_lifecycle(handler, action: str, body: dict):
         logger.exception("Gateway %s command failed before completion", action)
         return j(handler, {"ok": False, "error": _sanitize_error(exc), "action": action}, status=500)
     finally:
-        _GATEWAY_ACTION_LOCK.release()
+        action_lock.release()
 
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
@@ -1381,6 +1496,7 @@ def _handle_gateway_lifecycle(handler, action: str, body: dict):
                 "error": f"Gateway {action} failed with exit code {result.returncode}",
                 "action": action,
                 "returncode": result.returncode,
+                **({"profile": profile} if profile else {}),
             },
             status=500,
         )
@@ -1390,13 +1506,14 @@ def _handle_gateway_lifecycle(handler, action: str, body: dict):
         {
             "ok": True,
             "action": action,
+            **({"profile": profile} if profile else {}),
             # Do NOT return captured stdout/stderr — the `hermes gateway` CLI
             # prints service/PID/status details the browser shouldn't receive
             # (mirrors the failure path, which already suppresses them). The
             # frontend localizes its own success copy; the refreshed status
             # payload carries the user-facing state.
             "message": f"Gateway {action} completed.",
-            "status": _gateway_status_payload(),
+            "status": _gateway_status_payload(profile) if profile else _gateway_status_payload(),
         },
     )
 
@@ -14659,7 +14776,14 @@ def handle_get(handler, parsed) -> bool:
 
     # ── Gateway Status (GET) ──
     if parsed.path == "/api/gateway/status":
-        return j(handler, _gateway_status_payload())
+        _gw_profile = None
+        _gw_raw = (parse_qs(parsed.query).get("profile", [""])[0] or "").strip()
+        if _gw_raw:
+            from api.profiles import _PROFILE_ID_RE
+            if not _PROFILE_ID_RE.fullmatch(_gw_raw):
+                return bad(handler, "invalid profile", 400)
+            _gw_profile = _gw_raw
+        return j(handler, _gateway_status_payload(_gw_profile))
 
     # ── MCP Servers (GET) ──
     if parsed.path == "/api/mcp/servers":
