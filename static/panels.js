@@ -6653,12 +6653,20 @@ function _botsRelTime(iso) {
   if (!iso) return '';
   const ts = Date.parse(iso);
   if (isNaN(ts)) return '';
+  return _botsRelTimeMs(ts);
+}
+function _botsRelTimeEpoch(sec) {
+  if (!sec && sec !== 0) return '';
+  return _botsRelTimeMs(sec * 1000);
+}
+function _botsRelTimeMs(ts) {
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return 'à l’instant';
   if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
   if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
   return `il y a ${Math.floor(s / 86400)} j`;
 }
+const _botsChatLoaded = new Set();
 
 async function loadBotsPanel(fresh) {
   const panel = $('botsPanel');
@@ -6701,6 +6709,9 @@ async function loadBotsPanel(fresh) {
       const gwBtn = running
         ? `<button class="bots-btn bots-btn--stop" data-bot="${esc(bot.id)}" data-act="stop">${esc(t('bots_gateway_stop'))}</button>`
         : `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="start">${esc(t('bots_gateway_start'))}</button>`;
+      const chatBtn = bot.has_bot_chat
+        ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="chat" aria-expanded="false">${esc(t('bots_thread'))}</button>`
+        : '';
       html += `<div class="bots-row${child}">
         <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
         <span class="bots-id">${esc(bot.id)}</span>
@@ -6708,13 +6719,76 @@ async function loadBotsPanel(fresh) {
         <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
         <span class="bots-actions">
           <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>
+          ${chatBtn}
           ${gwBtn}
         </span>
       </div>`;
+      if (bot.has_bot_chat) {
+        html += `<div class="bots-chat" data-chat-for="${esc(bot.id)}" hidden></div>`;
+      }
     }
     panel.innerHTML = html;
+    _botsChatLoaded.clear(); // the accordion DOM nodes above are fresh; re-fetch on next open
   } catch (e) {
     panel.innerHTML = `<div style="padding:16px;color:var(--danger,#c0392b);font-size:12px">${esc(String(e && e.message || e))}</div>`;
+  }
+}
+
+function _botsRelayLabel(target) {
+  return target ? `→ ${target}` : '';
+}
+
+function _botsRenderChatTurns(turns) {
+  if (!turns || !turns.length) {
+    return `<div class="bots-chat-empty">${esc(t('bots_thread_empty'))}</div>`;
+  }
+  return turns.map(turn => {
+    const when = turn.timestamp ? `<span class="bots-turn-time">${esc(_botsRelTimeEpoch(turn.timestamp))}</span>` : '';
+    if (turn.kind === 'relay_out') {
+      const state = turn.ok === true ? 'ok' : (turn.ok === false ? 'err' : 'pending');
+      const status = turn.ok === true ? t('bots_relay_ok') : (turn.ok === false ? t('bots_relay_error') : t('bots_relay_pending'));
+      return `<div class="bots-relay bots-relay--${state}">
+        <div class="bots-relay-head">
+          <span class="bots-relay-arrow" aria-hidden="true">⇄</span>
+          <span class="bots-relay-target">${esc(_botsRelayLabel(turn.target))}</span>
+          <span class="bots-relay-status">${esc(status)}</span>
+          ${when}
+        </div>
+        ${turn.message ? `<div class="bots-relay-msg">${esc(turn.message)}</div>` : ''}
+        ${turn.error ? `<div class="bots-relay-error">${esc(turn.error)}</div>` : ''}
+      </div>`;
+    }
+    if (turn.kind === 'tool') {
+      return `<div class="bots-turn bots-turn--tool">
+        <span class="bots-turn-role">${esc(turn.tool_name || 'tool')}</span>
+        <span class="bots-turn-text">${esc(turn.content || '')}</span>
+        ${when}
+      </div>`;
+    }
+    return `<div class="bots-turn bots-turn--${esc(turn.role || 'text')}">
+      <span class="bots-turn-role">${esc(turn.role || '')}</span>
+      <span class="bots-turn-text">${esc(turn.content || '')}</span>
+      ${when}
+    </div>`;
+  }).join('');
+}
+
+async function _botsToggleChat(bot, btn) {
+  const box = document.querySelector('.bots-chat[data-chat-for="' + CSS.escape(bot) + '"]');
+  if (!box) return;
+  const opening = box.hidden;
+  box.hidden = !opening;
+  if (btn) btn.setAttribute('aria-expanded', String(opening));
+  if (!opening || _botsChatLoaded.has(bot)) return;
+  box.innerHTML = `<div class="bots-chat-loading">${esc(t('bots_loading'))}</div>`;
+  try {
+    const data = await api('/api/bot-chat?profile=' + encodeURIComponent(bot));
+    _botsChatLoaded.add(bot);
+    box.innerHTML = data && data.exists
+      ? _botsRenderChatTurns(data.turns)
+      : `<div class="bots-chat-empty">${esc(t('bots_thread_empty'))}</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="bots-chat-empty">${esc(String(e && e.message || e))}</div>`;
   }
 }
 
@@ -6730,6 +6804,10 @@ async function _botsOnClick(ev) {
     } catch (e) {
       if (typeof showToast === 'function') showToast(String(e && e.message || e));
     }
+    return;
+  }
+  if (act === 'chat') {
+    await _botsToggleChat(bot, btn);
     return;
   }
   if ((act === 'start' || act === 'stop') && !_botsPanelBusy) {
