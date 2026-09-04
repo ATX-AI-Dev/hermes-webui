@@ -159,9 +159,18 @@ observer si un nouveau tour tapé dans WebUI (a) apparaît bien après dans
    - Nettoyage fait après coup : instance jetable, clone, tunnel SSH et anciens résidus de la
      session précédente (`/tmp/webui-b4`, port 8791) tous supprimés/arrêtés.
 
-   **Toujours non couvert** : un bot « à la demande » (gateway arrêté) pour le tour complet —
-   seul l'import a été testé pour ceux-là, pas l'envoi d'un vrai tour (aurait exigé de démarrer
-   son gateway). Voir points 3 et 4 ci-dessous, toujours ouverts.
+   **✅ Couvert le 04/09/2026 (session suivante)** : tour complet réel sur un bot « à la
+   demande », `pere-blaise` (gateway `stopped`, confirmé par `hermes profile list`). Aucun
+   besoin de démarrer son gateway — `continue_bot_chat()` invoque `AIAgent` en process, jamais
+   via le gateway externe du profil (qui ne sert que Telegram/CLI). Instance jetable
+   `/tmp/webui-b4-onDemand` (port 8794), pilotée via un vrai navigateur : message envoyé,
+   `message_agent` déclenché vers `@lancelot`, confirmé au niveau `state.db` des deux profils
+   — dépôt côté `pere-blaise` (`role='tool'`, `status: "sent"`) et réception côté `lancelot`
+   ~2 secondes plus tard (`Message from 🤖 pere-blaise...`), suivie d'une vraie réponse de
+   l'agent lancelot. Nettoyage fait après coup (instance, clone, tunnel SSH). Voir
+   `HANDOFF-next-session.md` §3 point 5 pour le détail complet, y compris une découverte
+   annexe sur le vault (job cron présent mais inerte sur `pere-blaise`, signalé sans
+   correction directe).
 2. **✅ Fait le 04/09/2026 (session suivante)** : les tours `message_agent`/`bot_mode_dm` ont
    maintenant leur propre traitement dans `static/ui.js` (`_toolActionKind` → nouveau kind
    `relay`), au lieu de tomber dans la carte générique « unknown » (icône clé à molette, JSON
