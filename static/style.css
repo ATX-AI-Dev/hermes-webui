@@ -7352,6 +7352,10 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
 .bots-row:hover { background: var(--hover-bg); }
 .bots-row:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
 .bots-row[aria-busy="true"] { opacity: .6; cursor: progress; }
+/* The bot whose conversation is open in the centre column, mirroring the
+   active-session highlight in the CHAT sidebar. */
+.bots-row.is-current { background: var(--accent-bg); }
+.bots-row.is-current .bots-id { color: var(--accent-text); font-weight: 600; }
 .bots-row--child { padding-left: 20px; }
 .bots-more-btn { flex: none; align-self: center; border: 0; background: transparent;
   color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 13px;

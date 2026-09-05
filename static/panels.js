@@ -1,4 +1,8 @@
 let _currentPanel = 'chat';
+// Sidebar panel pinned in place while the main view moved on (see the
+// opts.keepSidebarPanel block in switchPanel). null = sidebar follows
+// _currentPanel, the historical behaviour.
+let _sidebarStickyPanel = null;
 let _renamingAppTitlebar = false;  // guard against re-entrant rename
 let _kanbanBoard = null;
 let _kanbanLatestEventId = 0;
@@ -405,8 +409,11 @@ async function switchPanel(name, opts = {}) {
       // Expand first, then continue to the normal panel switch below so
       // the clicked panel becomes (or stays) active in the same gesture.
       expandSidebar();
-    } else if (prevPanel === nextPanel) {
+    } else if (prevPanel === nextPanel && !_sidebarStickyPanel) {
       // Same panel clicked while sidebar is open → collapse and short-circuit.
+      // Not while a sticky sidebar panel is pinned: there _currentPanel is
+      // already 'chat' but the sidebar is showing Bots, so a click on the Chat
+      // rail icon means "give me the session list back", not "collapse".
       // Skip the guard/cleanup work below; nothing about the active panel
       // is changing, only the visibility of the panel container.
       toggleSidebar(true);
@@ -433,14 +440,23 @@ async function switchPanel(name, opts = {}) {
       sidebar.classList.add('mobile-panel-drawer', 'mobile-open');
     }
   }
-  // Update nav tabs (rail + mobile sidebar-nav share data-panel)
-  document.querySelectorAll('[data-panel]').forEach(t => t.classList.toggle('active', t.dataset.panel === nextPanel));
-  // Refresh aria-expanded on the newly-active rail button to mirror sidebar state.
-  if (typeof _syncSidebarAria === 'function') _syncSidebarAria();
-  // Update panel views
-  document.querySelectorAll('.panel-view').forEach(p => p.classList.remove('active'));
-  const panelEl = $('panel' + nextPanel.charAt(0).toUpperCase() + nextPanel.slice(1));
-  if (panelEl) panelEl.classList.add('active');
+  // ── Sticky sidebar panel ──
+  // opts.keepSidebarPanel switches only the MAIN view and leaves the sidebar
+  // on whatever panel it is showing. That is what makes the Bots list behave
+  // like the CHAT session list: opening a bot's conversation swaps the centre
+  // column and keeps the list you picked it from visible beside it, instead of
+  // yanking the sidebar back to the sessions list.
+  _sidebarStickyPanel = opts.keepSidebarPanel ? (_sidebarStickyPanel || prevPanel) : null;
+  if (!opts.keepSidebarPanel) {
+    // Update nav tabs (rail + mobile sidebar-nav share data-panel)
+    document.querySelectorAll('[data-panel]').forEach(t => t.classList.toggle('active', t.dataset.panel === nextPanel));
+    // Refresh aria-expanded on the newly-active rail button to mirror sidebar state.
+    if (typeof _syncSidebarAria === 'function') _syncSidebarAria();
+    // Update panel views
+    document.querySelectorAll('.panel-view').forEach(p => p.classList.remove('active'));
+    const panelEl = $('panel' + nextPanel.charAt(0).toUpperCase() + nextPanel.slice(1));
+    if (panelEl) panelEl.classList.add('active');
+  }
   // Update main content view. Each entry in MAIN_VIEW_PANELS gets a matching
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
@@ -457,7 +473,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
   if (nextPanel === 'bots') await loadBotsPanel();
-  else if (typeof _stopBotsPanelPoll === 'function') _stopBotsPanelPoll();
+  else if (typeof _stopBotsPanelPoll === 'function' && !_botsPanelVisible()) _stopBotsPanelPoll();
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
@@ -6695,11 +6711,19 @@ function _botAvatarHTML(bot) {
 // scoped to a single open CLI/Bot-Chat session via GET /api/session, not
 // this multi-profile list.
 let _botsPollTimer = null;
+// The list keeps polling as long as it is on screen — which, since the panel
+// became sticky, is no longer the same thing as _currentPanel === 'bots':
+// opening a bot's conversation moves _currentPanel to 'chat' while #panelBots
+// stays the visible sidebar view.
+function _botsPanelVisible() {
+  const el = document.getElementById('panelBots');
+  return !!(el && el.classList.contains('active'));
+}
 function _ensureBotsPanelPoll() {
   if (_botsPollTimer) return;
   _botsPollTimer = setInterval(() => {
     if (document.hidden) return;
-    if (typeof _currentPanel !== 'undefined' && _currentPanel !== 'bots') return;
+    if (!_botsPanelVisible()) return;
     loadBotsPanel(true);
   }, 15000);
 }
@@ -6747,6 +6771,8 @@ async function loadBotsPanel(fresh) {
       <span><strong>${c.active_sessions || 0}</strong> ${esc(t('bots_summary_sessions'))}</span>
     </div>`;
 
+    const activeProfile = (typeof S !== 'undefined' && S && S.activeProfile) ? S.activeProfile : '';
+
     let lastBranch = null;
     for (const bot of bots) {
       if (bot.branch !== lastBranch) {
@@ -6755,6 +6781,9 @@ async function loadBotsPanel(fresh) {
       }
       const running = !!bot.gateway_running;
       const child = bot.parent ? ' bots-row--child' : '';
+      // Survives the 15s re-render: _botsMarkCurrent handles the immediate
+      // highlight, this keeps it after the list is rebuilt.
+      const current = (activeProfile && bot.id === activeProfile) ? ' is-current' : '';
       const sessions = bot.active_sessions > 0
         ? `<span class="bots-pill">${bot.active_sessions} ${esc(t('bots_col_sessions'))}</span>` : '';
       const last = bot.last_activity ? `<span class="bots-when">${esc(_botsRelTime(bot.last_activity))}</span>` : '';
@@ -6784,7 +6813,7 @@ async function loadBotsPanel(fresh) {
       const cardTitle = bot.has_bot_chat ? t('bots_continue') : t('bots_open_thread');
       const preview = bot.last_message_preview
         ? `<span class="bots-preview">${esc(bot.last_message_preview)}</span>` : '';
-      html += `<div class="bots-row${child}" role="button" tabindex="0"
+      html += `<div class="bots-row${child}${current}" role="button" tabindex="0"
         data-bot="${esc(bot.id)}" data-card-act="${cardAct}" title="${esc(cardTitle)}">
         ${_botAvatarHTML(bot)}
         <span class="bots-row-main">
@@ -6901,6 +6930,25 @@ function _botsToggleDetails(bot, btn) {
 // Both go through here so the continue → switchToProfile → loadSession chain
 // exists once. _botsOpening guards against a double-click firing two imports.
 let _botsOpening = false;
+// Keep the Bots list beside the conversation on desktop. On a phone the
+// sidebar is a drawer that closes on selection anyway, and
+// _syncMobileSidebarPanelFromMainView owns the drawer's panel state, so the
+// sticky mode would only fight it.
+function _botsSwitchToChat() {
+  if (typeof switchPanel !== 'function') return;
+  const desktop = typeof _isDesktopWidth === 'function' ? _isDesktopWidth() : true;
+  switchPanel('chat', desktop ? { keepSidebarPanel: true } : {});
+}
+// Highlight the bot whose conversation is open, the way the session list
+// highlights the open session. The panel only re-renders every 15s, so mark
+// the row directly instead of waiting for the next poll.
+function _botsMarkCurrent(bot) {
+  const panel = $('botsPanel');
+  if (!panel) return;
+  panel.querySelectorAll('.bots-row').forEach(row => {
+    row.classList.toggle('is-current', row.dataset.bot === bot);
+  });
+}
 async function _botsOpenConversation(bot, act, srcEl) {
   if (!bot || _botsOpening) return;
   _botsOpening = true;
@@ -6908,7 +6956,8 @@ async function _botsOpenConversation(bot, act, srcEl) {
   try {
     if (act === 'open') {
       if (typeof switchToProfile === 'function') await switchToProfile(bot);
-      if (typeof switchPanel === 'function') switchPanel('chat');
+      _botsSwitchToChat();
+      _botsMarkCurrent(bot);
       return;
     }
     const r = await api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
@@ -6917,7 +6966,8 @@ async function _botsOpenConversation(bot, act, srcEl) {
       return;
     }
     if (typeof switchToProfile === 'function') await switchToProfile(bot);
-    if (typeof switchPanel === 'function') switchPanel('chat');
+    _botsSwitchToChat();
+    _botsMarkCurrent(bot);
     if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);
   } catch (e) {
     if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));

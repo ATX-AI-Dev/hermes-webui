@@ -59,6 +59,32 @@ def test_model_name_is_not_rendered_on_the_card():
     assert "bots-model" not in css
 
 
+def test_bots_sidebar_stays_visible_while_a_conversation_is_open():
+    """Point 6: the list must not disappear when you open a bot's chat.
+
+    switchPanel('chat', {keepSidebarPanel:true}) moves only the main view, so
+    #panelBots stays the active sidebar panel — which also means the 15s poll
+    can no longer key off _currentPanel.
+    """
+    js = _panels_js()
+    assert "let _sidebarStickyPanel = null;" in js
+    assert "if (!opts.keepSidebarPanel) {" in js
+    assert "switchPanel('chat', desktop ? { keepSidebarPanel: true } : {});" in js
+    assert "function _botsPanelVisible()" in js
+    assert "if (!_botsPanelVisible()) return;" in js
+    # a rail click on Chat while pinned must restore the session list, not
+    # collapse the sidebar
+    assert "prevPanel === nextPanel && !_sidebarStickyPanel" in js
+
+
+def test_open_bot_is_highlighted_in_the_list():
+    js = _panels_js()
+    css = (_STATIC / "style.css").read_text(encoding="utf-8")
+    assert "function _botsMarkCurrent(bot)" in js
+    assert "row.classList.toggle('is-current'" in js
+    assert ".bots-row.is-current" in css
+
+
 def test_style_and_i18n_back_the_new_card():
     css = (_STATIC / "style.css").read_text(encoding="utf-8")
     assert ".bots-more-btn" in css
