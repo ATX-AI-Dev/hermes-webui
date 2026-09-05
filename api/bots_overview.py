@@ -158,6 +158,44 @@ def _branch_order(hierarchy: dict) -> dict[str, int]:
     return {b.get("id"): i for i, b in enumerate(hierarchy.get("branches") or []) if b.get("id")}
 
 
+def _hidden_branches(hierarchy: dict) -> set[str]:
+    """Branch ids flagged ``"hidden": true`` — kept out of the Bots panel.
+
+    The panel lists *bots*; a Hermes profile that is only ever a plain chat
+    (the ``interne`` branch, i.e. the root ``default`` profile) has its own
+    entry point in the rail and does not belong in the list, nor in its
+    counts. Driven by the hierarchy file rather than a hardcoded id so the
+    operator copy at ``<HERMES_HOME>/webui/bots_hierarchy.json`` can bring a
+    branch back.
+    """
+    return {
+        b["id"] for b in (hierarchy.get("branches") or [])
+        if isinstance(b, dict) and b.get("id") and b.get("hidden")
+    }
+
+
+def _dedupe_rows_by_name(rows: list) -> list:
+    """Keep the first row per profile name.
+
+    ``list_profiles_api`` can return two rows with the same *name*: upstream
+    hardcodes the base home's display name to ``'default'``
+    (``api/profiles.py::_build_profile_rows_fast``) and then walks
+    ``<HERMES_HOME>/profiles/*``, so a real ``profiles/default`` directory —
+    which exists on the production host — yields a second ``'default'`` row
+    for a different home. The panel keyed its cards on the name and rendered
+    the profile twice (reported 2026-09-05). First wins, i.e. the base home.
+    """
+    out: list = []
+    seen: set[str] = set()
+    for r in rows:
+        name = str((r or {}).get("name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(r)
+    return out
+
+
 def build_bots_overview(*, use_cache: bool = True) -> dict:
     """Return ``{"bots": [...], "branches": [...], "generated_at": <epoch>}``.
 
@@ -177,9 +215,18 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
         logger.warning("bots_overview: list_profiles_api failed", exc_info=True)
         rows = []
 
-    names = [str(r.get("name") or "").strip() for r in rows if r.get("name")]
     hierarchy = _load_hierarchy()
     hmap: dict[str, dict] = hierarchy.get("profiles") or {}
+    hidden = _hidden_branches(hierarchy)
+
+    rows = _dedupe_rows_by_name(rows)
+    if hidden:
+        rows = [
+            r for r in rows
+            if (hmap.get(str(r.get("name") or "").strip()) or {}).get("branch", "autre") not in hidden
+        ]
+
+    names = [str(r.get("name") or "").strip() for r in rows if r.get("name")]
     sessions = _sessions_by_profile(names)
     branch_rank = _branch_order(hierarchy)
     try:
@@ -226,7 +273,10 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
 
     payload = {
         "bots": bots,
-        "branches": hierarchy.get("branches") or [],
+        "branches": [
+            b for b in (hierarchy.get("branches") or [])
+            if not (isinstance(b, dict) and b.get("hidden"))
+        ],
         "generated_at": now,
         "counts": {
             "total": len(bots),

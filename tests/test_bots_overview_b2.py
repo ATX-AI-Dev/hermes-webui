@@ -126,6 +126,8 @@ def test_a_profile_without_its_own_db_does_not_leak_another_profiles_sessions(mo
 
 
 def test_bots_are_sorted_by_branch_then_order(monkeypatch):
+    # 'default' sits in the 'interne' branch, which the bundled hierarchy now
+    # flags hidden — see test_hidden_branch_is_excluded_from_bots_and_counts.
     bo = _patch(monkeypatch, rows=[
         {"name": "default", "path": "/x/d"},
         {"name": "roi-arthur", "path": "/x/a"},
@@ -134,7 +136,7 @@ def test_bots_are_sorted_by_branch_then_order(monkeypatch):
     ])
     payload = bo.build_bots_overview(use_cache=False)
     order = [b["id"] for b in payload["bots"]]
-    assert order == ["roi-arthur", "lancelot", "guenievre", "default"]
+    assert order == ["roi-arthur", "lancelot", "guenievre"]
 
 
 def test_operator_override_wins_and_broken_file_is_ignored(monkeypatch, tmp_path):
@@ -185,3 +187,50 @@ def _make_profile_db(home_dir, session_rows):
     )
     db.commit()
     db.close()
+
+
+def test_duplicate_profile_names_are_collapsed_to_one_bot(monkeypatch):
+    """The production host has BOTH ~/.hermes (reported as 'default') and a
+    real ~/.hermes/profiles/default directory, so list_profiles_api returns two
+    rows named 'default' and the panel drew the profile twice (2026-09-05).
+    Uses a visible branch so the dedupe is what's under test, not the hiding.
+    """
+    bo = _patch(monkeypatch, rows=[
+        {"name": "lancelot", "path": "/x/base/lancelot", "gateway_running": True},
+        {"name": "lancelot", "path": "/x/profiles/lancelot", "gateway_running": False},
+        {"name": "bohorth", "path": "/x/bohorth"},
+    ])
+    payload = bo.build_bots_overview(use_cache=False)
+    assert [b["id"] for b in payload["bots"]] == ["lancelot", "bohorth"]
+    # first row wins (the base home), so its gateway state is the one kept
+    assert payload["bots"][0]["gateway_running"] is True
+    assert payload["counts"]["total"] == 2
+    assert payload["counts"]["gateways_up"] == 1
+
+
+def test_hidden_branch_is_excluded_from_bots_and_counts(monkeypatch, tmp_path):
+    """A branch flagged "hidden" disappears from the list, from counts, and
+    from the branches payload — the 'interne' branch (the plain-chat 'default'
+    profile) is not a bot and has its own entry point in the rail.
+    """
+    webui = tmp_path / "webui"
+    webui.mkdir()
+    (webui / "bots_hierarchy.json").write_text(json.dumps({
+        "branches": [
+            {"id": "pro", "label": "Pro"},
+            {"id": "interne", "label": "Interne", "hidden": True},
+        ],
+        "profiles": {
+            "lancelot": {"branch": "pro", "role": "Manager"},
+            "default": {"branch": "interne", "role": "Chat"},
+        },
+    }), encoding="utf-8")
+    bo = _patch(monkeypatch, base_home=tmp_path, rows=[
+        {"name": "lancelot", "path": "/x/l", "gateway_running": True},
+        {"name": "default", "path": "/x/d", "gateway_running": True},
+    ])
+    payload = bo.build_bots_overview(use_cache=False)
+    assert [b["id"] for b in payload["bots"]] == ["lancelot"]
+    assert payload["counts"]["total"] == 1
+    assert payload["counts"]["gateways_up"] == 1  # 'default' not counted
+    assert [b["id"] for b in payload["branches"]] == ["pro"]

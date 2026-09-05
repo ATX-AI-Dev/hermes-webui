@@ -5,7 +5,7 @@
     { "id": "conseil", "label": "Conseil — hors chaîne d'exécution" },
     { "id": "pro", "label": "Branche Pro" },
     { "id": "perso", "label": "Branche Perso" },
-    { "id": "interne", "label": "Profil interne" },
+    { "id": "interne", "label": "Profil interne", "hidden": true },
     { "id": "autre", "label": "Autres profils" }
   ],
   "profiles": {
