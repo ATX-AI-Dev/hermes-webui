@@ -16553,6 +16553,17 @@ function renderMessages(options){
   const scrollSnapshot=(preserveScroll||_messageUserUnpinned)?_captureMessageScrollSnapshot():null;
   const inner=$('msgInner');
   const sid=S.session?S.session.session_id:null;
+  // Quiet thread for Bot Chats: the bot's own plumbing (process wakeups,
+  // cronjob relays, the tool trace) is operational detail, not conversation.
+  // Hidden here by CSS and available on demand in the Workspace panel's Trace
+  // tab. The bot's own prose — including the status tables it writes itself —
+  // is untouched.
+  const _msgsEl=$('messages');
+  if(_msgsEl){
+    if(isBotChatSession()) _msgsEl.dataset.botChat='1';
+    else delete _msgsEl.dataset.botChat;
+  }
+  if(typeof syncWorkspaceTraceTab==='function') syncWorkspaceTraceTab();
   if(!S.busy&&Array.isArray(S.messages)&&typeof _hydrateIdLinkedHistoricalToolScenes==='function'){
     const activityMode=typeof chatActivityMode==='function'?chatActivityMode():'compact_worklog';
     _hydrateIdLinkedHistoricalToolScenes(S.messages,{sessionId:sid,mode:activityMode});
@@ -17146,7 +17157,11 @@ function renderMessages(options){
       if(row&&(!row.classList.contains('msg-row')||row.classList.contains('assistant-turn'))) row=null;
       const newRawText=String(displayContent).trim();
       const nextRowHtml=`${filesHtml}<div class="msg-body">${bodyHtml}</div>${footHtml}`;
-      const userRowClassName=relayInbound?'msg-row relay-inbound-row':'msg-row';
+      // machine-notice-row is what the Bot Chat "quiet thread" CSS hides; the
+      // row is still built and still in the DOM, so nothing else that walks
+      // the transcript (anchors, virtualization, copy) changes behaviour.
+      const userRowClassName=(relayInbound?'msg-row relay-inbound-row':'msg-row')
+        +(_isMachineNoticeText(displayContent)?' machine-notice-row':'');
       if(row){
         row.className=userRowClassName;
         row.id=_userMessageDomId(rawIdx);
@@ -18337,6 +18352,24 @@ function _relayInboundMatch(text){
   const m=_RELAY_INBOUND_RE.exec(String(text||''));
   if(!m) return null;
   return {from:m[1], message:m[2]};
+}
+// Machine plumbing a bot injects into its OWN agent session as ordinary user
+// turns: a background-process wakeup or a cronjob relay. WebUI's own wakeups
+// are tagged m._source==='process_wakeup', but the ones imported from a bot's
+// state.db (api/bot_mesh.py::continue_bot_chat) carry nothing but their text,
+// so they are recognised by the notice grammar the agent writes — the process
+// shape is pinned server-side by api/process_event_utils.py. Anchored at the
+// start, like _RELAY_INBOUND_RE, so a human message that merely mentions one
+// of these still renders as plain text.
+const _MACHINE_NOTICE_RE=/^\[(?:IMPORTANT: Background process |Cronjob ")/;
+function _isMachineNoticeText(text){
+  return _MACHINE_NOTICE_RE.test(String(text||''));
+}
+// A Bot Chat opened through the Bots panel. 'Bot Chat' is the session title
+// the agent itself uses and the key api/bot_mesh.py looks sessions up by, so
+// it is the contract, not a guess.
+function isBotChatSession(){
+  return !!(typeof S!=='undefined'&&S&&S.session&&S.session.title==='Bot Chat');
 }
 function _relayInboundHeaderHtml(fromHandle){
   return `<div class="relay-inbound-header">${li('message-square',13)}<span>${esc(t('relay_inbound_from'))} <strong>@${esc(fromHandle)}</strong></span></div>`;

@@ -7431,3 +7431,28 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
 .bots-relay--err .bots-relay-status { color: var(--danger); }
 .bots-relay-msg { margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
 .bots-relay-error { margin-top: 3px; color: var(--danger); }
+
+/* ── Bot Chat quiet thread (iteration 2, point 7) ────────────────────────── */
+/* A Bot Chat imported from a bot's own agent session carries that bot's
+   plumbing as ordinary turns: background-process wakeups, cronjob relays and
+   the tool trace. That is operational detail, not conversation, so the thread
+   hides it and the Workspace panel's Trace tab shows it on demand. The rows
+   stay in the DOM — anchors, virtualization and copy keep working. The bot's
+   own prose, status tables included, is never touched: it is what the bot
+   actually said. */
+.messages[data-bot-chat="1"] .machine-notice-row,
+.messages[data-bot-chat="1"] .process-wakeup-row,
+.messages[data-bot-chat="1"] .transparent-event-controls,
+.messages[data-bot-chat="1"] .transparent-event-row { display: none; }
+
+.workspace-trace { display: flex; flex-direction: column; gap: 8px; }
+.ws-trace-empty { color: var(--muted); font-size: 12px; padding: 8px 2px; }
+.ws-trace-item { border: 1px solid var(--border-subtle); border-left: 3px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; background: var(--surface); font-size: 11.5px; }
+.ws-trace-item--tool { border-left-color: var(--link); }
+.ws-trace-item--process { border-left-color: var(--accent); }
+.ws-trace-head { display: flex; align-items: baseline; gap: 6px; color: var(--muted); }
+.ws-trace-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.ws-trace-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+.ws-trace-body { margin-top: 4px; white-space: pre-wrap; word-break: break-word;
+  max-height: 140px; overflow: auto; color: var(--text); opacity: .85; }

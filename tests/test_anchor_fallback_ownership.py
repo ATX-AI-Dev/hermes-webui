@@ -620,6 +620,8 @@ def test_render_messages_keeps_anchor_owned_turn_out_of_legacy_activity_rebuilds
         function _stripWorkspaceDisplayPrefix(value) {{ return String(value || ''); }}
         function _stripLeadingAssistantThinkingMarkup(value) {{ return String(value || ''); }}
         function _relayInboundMatch() {{ return null; }}
+        function _isMachineNoticeText() {{ return false; }}
+        function isBotChatSession() {{ return false; }}
         function _getCachedRender(value) {{ return String(value || ''); }}
         function _formatInServerTz() {{ return ''; }}
         function _formatMessageFooterTimestamp() {{ return ''; }}
