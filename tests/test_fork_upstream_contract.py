@@ -50,6 +50,12 @@ _STATIC = _ROOT / "static"
     ("api.helpers", "j", "every fork handler"),
     ("api.routes", "bad", "every fork handler"),
     ("api.routes", "_sanitize_error", "every fork handler"),
+    # agent_drift re-execs through upstream's own restart path rather than
+    # reimplementing it — losing any of these silently breaks the banner's button.
+    ("api.updates", "_schedule_restart", "agent_drift._restart_worker (os.execv re-exec)"),
+    ("api.updates", "_wait_until_restart_safe", "agent_drift._restart_worker (drain streams first)"),
+    ("api.updates", "_restart_blocker_snapshot", "agent_drift.request_restart"),
+    ("api.updates", "_detect_agent_version", "agent_drift.drift_status"),
 ])
 def test_upstream_symbol_still_exists(module, symbol, used_by):
     import importlib
@@ -119,7 +125,8 @@ def test_i18n_fork_merge_targets_still_exist():
 def test_fork_assets_are_loaded_and_precached():
     html = (_STATIC / "index.html").read_text(encoding="utf-8")
     sw = (_STATIC / "sw.js").read_text(encoding="utf-8")
-    for asset in ("static/bots_panel.js", "static/bots_panel.css", "static/i18n_fork.js"):
+    for asset in ("static/bots_panel.js", "static/bots_panel.css", "static/i18n_fork.js",
+                  "static/agent_drift.js"):
         assert asset in html, f"{asset} is not loaded by index.html"
         assert f"'./{asset}'" in sw, f"{asset} is missing from the service worker shell cache"
     # order matters: fork CSS after upstream CSS, i18n_fork after i18n

@@ -52,6 +52,10 @@
       workspace_trace_empty: 'No background activity in this thread.',
       workspace_trace_tool: 'tool',
       workspace_trace_process: 'background',
+      agent_drift_message: 'Hermes Agent was updated. This WebUI is still running the modules it loaded at startup.',
+      agent_drift_restart: 'Restart WebUI',
+      agent_drift_later: 'Later',
+      agent_drift_restarting: 'Restarting WebUI… the page will reload on its own.',
     },
     fr: {
       tab_bots: 'Bots',
@@ -88,6 +92,10 @@
       workspace_trace_empty: 'Aucune activité en arrière-plan dans ce fil.',
       workspace_trace_tool: 'outil',
       workspace_trace_process: 'arrière-plan',
+      agent_drift_message: 'Hermes Agent a été mis à jour. Ce WebUI tourne encore sur les modules chargés à son démarrage.',
+      agent_drift_restart: 'Redémarrer le WebUI',
+      agent_drift_later: 'Plus tard',
+      agent_drift_restarting: 'Redémarrage du WebUI… la page se rechargera toute seule.',
     },
   };
   if (typeof LOCALES === 'undefined' || !LOCALES) {

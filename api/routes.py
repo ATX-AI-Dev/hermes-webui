@@ -46,6 +46,10 @@ from api.agent_sessions import (
     is_cli_session_row_visible,
     read_session_lineage_report,
 )
+# Fork: imported here for its import-time side effect — the module captures the
+# agent SHA this process starts on. Doing it lazily on the first HTTP hit could
+# land after an agent update and miss the drift entirely. See api/agent_drift.py.
+from api import agent_drift as _agent_drift  # noqa: F401
 from api.compression_anchor import visible_messages_for_anchor
 from api.compression_recovery import (
     COMPRESSION_RECOVERY_ACTION_START_FOCUSED,
@@ -14745,6 +14749,11 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/memory":
         return _handle_memory_read(handler, parsed)
 
+    # ── Agent drift (GET) — fork: l agent a-t-il bouge sous nous ? ──
+    if parsed.path == "/api/agent-drift":
+        from api.agent_drift import handle_get_drift
+        return handle_get_drift(handler, parsed)
+
     # ── Bot Chat transcript (GET) — palier B / B3, read-only ──
     if parsed.path == "/api/bot-chat":
         from api.bot_mesh import handle_get_transcript
@@ -16760,6 +16769,11 @@ def handle_post(handler, parsed) -> bool:
 
     if parsed.path in {"/api/gateway/start", "/api/gateway/stop", "/api/gateway/restart"}:
         return _handle_gateway_lifecycle(handler, parsed.path.rsplit("/", 1)[-1], body)
+
+    # ── Agent drift restart (POST) — fork: re-exec du WebUI ──
+    if parsed.path == "/api/agent-drift/restart":
+        from api.agent_drift import handle_post_restart
+        return handle_post_restart(handler, body)
 
     # ── Bot customization (POST) — display name / avatar reset, iteration 2 ──
     if parsed.path == "/api/bots/customization":

@@ -145,3 +145,24 @@
 .ws-trace-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
 .ws-trace-body { margin-top: 4px; white-space: pre-wrap; word-break: break-word;
   max-height: 140px; overflow: auto; color: var(--text); opacity: .85; }
+
+/* ── Agent-drift banner (fork) ───────────────────────────────────────────── */
+/* Shown when Hermes Agent was updated under a running WebUI (see
+   static/agent_drift.js). Persistent on purpose — the auto-dismissing toast
+   would vanish before the operator noticed it. Fixed to the bottom so it never
+   covers the titlebar or the composer's send button. */
+.agent-drift-banner { position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 16px; z-index: 900; display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; max-width: min(680px, calc(100vw - 32px));
+  padding: 10px 14px; border-radius: 10px; font-size: 12.5px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .22); }
+.agent-drift-text { flex: 1 1 260px; min-width: 0; line-height: 1.45; }
+.agent-drift-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.agent-drift-btn { border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); border-radius: 6px; padding: 5px 11px; font-size: 12px;
+  cursor: pointer; white-space: nowrap; }
+.agent-drift-btn:hover { border-color: var(--muted); }
+.agent-drift-btn--primary { background: var(--accent-bg); color: var(--accent-text);
+  border-color: var(--accent); font-weight: 600; }
