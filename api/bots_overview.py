@@ -199,10 +199,10 @@ def _dedupe_rows_by_name(rows: list) -> list:
 def build_bots_overview(*, use_cache: bool = True) -> dict:
     """Return ``{"bots": [...], "branches": [...], "generated_at": <epoch>}``.
 
-    Each bot: ``id, role, description, emoji, color, branch, parent, manager,
-    tag, permanent_gateway, gateway_running, model, skill_count, is_active,
-    is_known (in the hierarchy map), active_sessions, last_activity,
-    last_message_preview``.
+    Each bot: ``id, display_name, avatar_url, role, description, emoji, color,
+    branch, parent, manager, tag, permanent_gateway, gateway_running, model,
+    skill_count, is_active, is_known (in the hierarchy map), active_sessions,
+    last_activity, last_message_preview``.
     """
     now = time.time()
     if use_cache and _CACHE["payload"] is not None and (now - _CACHE["at"]) < _CACHE_TTL:
@@ -236,6 +236,15 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
         logger.debug("bots_overview: list_bot_chat_profiles failed", exc_info=True)
         bot_chat_profiles = set()
 
+    # User-chosen name/picture wins over the org file's declared emoji/colour,
+    # which in turn wins over the front-end's hash-based fallback.
+    try:
+        from api.bot_customization import avatar_url, load_customization
+        custom = load_customization()
+    except Exception:
+        logger.debug("bots_overview: customization load failed", exc_info=True)
+        custom, avatar_url = {}, (lambda *_a, **_k: None)
+
     bots: list[dict] = []
     for r in rows:
         name = str(r.get("name") or "").strip()
@@ -243,9 +252,12 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
             continue
         h = hmap.get(name) or {}
         sess = sessions.get(name) or {}
+        c = custom.get(name) or {}
         bots.append(
             {
                 "id": name,
+                "display_name": c.get("display_name") or None,
+                "avatar_url": avatar_url(name, c),
                 "role": h.get("role") or _profile_description(r.get("path") or "") or "",
                 "description": _profile_description(r.get("path") or ""),
                 "emoji": h.get("emoji"),

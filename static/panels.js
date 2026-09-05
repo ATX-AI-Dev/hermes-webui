@@ -6711,10 +6711,20 @@ function _botsAvatarFallbackColor(id) {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return _BOTS_AVATAR_FALLBACK_PALETTE[h % _BOTS_AVATAR_FALLBACK_PALETTE.length];
 }
+// Priority: the user's own picture (api/bot_customization.py) > the emoji and
+// colour declared in bots_hierarchy.json > a hash-based fallback colour.
 function _botAvatarHTML(bot) {
+  if (bot.avatar_url) {
+    return `<img class="bots-avatar bots-avatar--img" src="${esc(bot.avatar_url)}" alt="" aria-hidden="true">`;
+  }
   const color = bot.color || _botsAvatarFallbackColor(bot.id);
   const glyph = bot.emoji || (String(bot.id || '?').charAt(0).toUpperCase());
   return `<span class="bots-avatar" style="background:${esc(color)}" aria-hidden="true">${esc(glyph)}</span>`;
+}
+// A bot the user has named displays under that name; otherwise under its
+// profile id, which is what the monospace styling is for.
+function _botDisplayName(bot) {
+  return (bot && bot.display_name) || (bot && bot.id) || '';
 }
 
 // Panel-local poll: refreshes the Bots list every ~15s while the Bots panel
@@ -6832,7 +6842,7 @@ async function loadBotsPanel(fresh) {
         <span class="bots-row-main">
           <span class="bots-row-id">
             <span class="bots-dot ${running ? 'up' : ''}" title="${esc(gwTitle)}"></span>
-            <span class="bots-id">${esc(bot.id)}</span>
+            <span class="bots-id${bot.display_name ? ' bots-id--named' : ''}">${esc(_botDisplayName(bot))}</span>
             <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
           </span>
           ${preview}
@@ -6846,7 +6856,10 @@ async function loadBotsPanel(fresh) {
         <span class="bots-actions">
           ${chatBtn}
           ${gwBtn}
+          <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="customize"
+            aria-expanded="false">${esc(t('bots_customize'))}</button>
         </span>
+        ${_botsCustomizeFormHTML(bot)}
       </div>`;
       if (bot.has_bot_chat) {
         html += `<div class="bots-chat" data-chat-for="${esc(bot.id)}" hidden></div>`;
@@ -6924,6 +6937,90 @@ async function _botsToggleChat(bot, btn) {
       : `<div class="bots-chat-empty">${esc(t('bots_thread_empty'))}</div>`;
   } catch (e) {
     box.innerHTML = `<div class="bots-chat-empty">${esc(String(e && e.message || e))}</div>`;
+  }
+}
+
+// Per-bot customization form, folded inside the "···" area. The user's name
+// and picture are stored per profile by api/bot_customization.py, separately
+// from bots_hierarchy.json (which describes the org, not preferences).
+function _botsCustomizeFormHTML(bot) {
+  const removeBtn = bot.avatar_url
+    ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="customize-clear">${esc(t('bots_custom_remove_photo'))}</button>`
+    : '';
+  return `<div class="bots-custom" data-custom-for="${esc(bot.id)}" hidden>
+    <label class="bots-custom-row">
+      <span>${esc(t('bots_custom_name'))}</span>
+      <input type="text" class="bots-custom-name" maxlength="64"
+        value="${esc(bot.display_name || '')}" placeholder="${esc(bot.id)}">
+    </label>
+    <label class="bots-custom-row">
+      <span>${esc(t('bots_custom_avatar'))}</span>
+      <input type="file" class="bots-custom-file" accept="image/png,image/jpeg,image/gif,image/webp">
+    </label>
+    <span class="bots-actions">
+      <button class="bots-btn" data-bot="${esc(bot.id)}" data-act="customize-save">${esc(t('bots_custom_save'))}</button>
+      ${removeBtn}
+    </span>
+  </div>`;
+}
+
+function _botsToggleCustomize(bot, btn) {
+  const box = document.querySelector('.bots-custom[data-custom-for="' + CSS.escape(bot) + '"]');
+  if (!box) return;
+  const opening = box.hidden;
+  box.hidden = !opening;
+  if (btn) btn.setAttribute('aria-expanded', String(opening));
+  if (opening) {
+    const input = box.querySelector('.bots-custom-name');
+    if (input) input.focus();
+  }
+}
+
+async function _botsSaveCustomization(bot, btn) {
+  const box = document.querySelector('.bots-custom[data-custom-for="' + CSS.escape(bot) + '"]');
+  if (!box) return;
+  const nameInput = box.querySelector('.bots-custom-name');
+  const fileInput = box.querySelector('.bots-custom-file');
+  btn.disabled = true;
+  try {
+    await api('/api/bots/customization', {
+      method: 'POST',
+      body: JSON.stringify({ profile: bot, display_name: nameInput ? nameInput.value : '' }),
+      timeoutToast: false,
+    });
+    // Separate request: the picture is multipart, the name is JSON. Sent
+    // second so a rejected image (wrong format, too big) doesn't discard a
+    // perfectly good name change.
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (file) {
+      const fd = new FormData();
+      fd.append('profile', bot);
+      fd.append('file', file, file.name);
+      // headers:{} lets the browser set multipart/form-data with its boundary
+      // — api() otherwise forces application/json (see workspace.js upload).
+      await api('/api/bots/avatar', { method: 'POST', body: fd, headers: {}, timeoutToast: false });
+    }
+    await loadBotsPanel(true);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function _botsClearAvatar(bot, btn) {
+  btn.disabled = true;
+  try {
+    await api('/api/bots/customization', {
+      method: 'POST',
+      body: JSON.stringify({ profile: bot, clear_avatar: true }),
+      timeoutToast: false,
+    });
+    await loadBotsPanel(true);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -7015,6 +7112,18 @@ async function _botsOnClick(ev) {
   const act = btn.dataset.act;
   if (act === 'details') {
     _botsToggleDetails(bot, btn);
+    return;
+  }
+  if (act === 'customize') {
+    _botsToggleCustomize(bot, btn);
+    return;
+  }
+  if (act === 'customize-save') {
+    await _botsSaveCustomization(bot, btn);
+    return;
+  }
+  if (act === 'customize-clear') {
+    await _botsClearAvatar(bot, btn);
     return;
   }
   if (act === 'open' || act === 'continue') {

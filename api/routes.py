@@ -1416,6 +1416,35 @@ def _run_gateway_lifecycle_command(action: str, profile: str | None = None) -> s
     )
 
 
+def _handle_bot_avatar_upload(handler):
+    """POST /api/bots/avatar — store one bot's profile picture (multipart).
+
+    Reuses api.upload.parse_multipart, the same parser behind /api/upload, so
+    there is one multipart implementation in the process. The size and format
+    guards live in api.bot_customization.save_avatar, which sniffs the bytes
+    rather than trusting the uploaded filename.
+    """
+    from api.bot_customization import MAX_AVATAR_BYTES, save_avatar
+    from api.bots_overview import invalidate_cache
+    from api.upload import parse_multipart
+    try:
+        content_type = handler.headers.get("Content-Type", "")
+        content_length = int(handler.headers.get("Content-Length", 0) or 0)
+        if content_length > MAX_AVATAR_BYTES:
+            return bad(handler, f"image too large (max {MAX_AVATAR_BYTES // 1024 // 1024}MB)", 413)
+        fields, files = parse_multipart(handler.rfile, content_type, content_length)
+        if "file" not in files:
+            return bad(handler, "No file field in request", 400)
+        entry = save_avatar(str(fields.get("profile") or "").strip(), files["file"][1])
+        invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
+        return j(handler, {"ok": True, "customization": entry})
+    except ValueError as exc:
+        return bad(handler, str(exc), 400)
+    except Exception as exc:
+        logger.exception("bot avatar upload failed")
+        return bad(handler, _sanitize_error(exc), status=500)
+
+
 def _handle_gateway_lifecycle(handler, action: str, body: dict):
     # Reject overlapping lifecycle actions instead of spawning concurrent
     # `hermes gateway` subprocesses (a non-blocking acquire — the action holds
@@ -14774,6 +14803,28 @@ def handle_get(handler, parsed) -> bool:
             logger.exception("bots overview failed")
             return bad(handler, _sanitize_error(exc), status=500)
 
+    # ── Bot avatar (GET) — user-uploaded profile picture, iteration 2 ──
+    if parsed.path == "/api/bots/avatar":
+        try:
+            from api.bot_customization import avatar_file
+            found = avatar_file((parse_qs(parsed.query).get("profile", [""])[0] or "").strip())
+            if found is None:
+                return bad(handler, "not found", 404)
+            path, mime = found
+            data = path.read_bytes()
+            handler.send_response(200)
+            handler.send_header("Content-Type", mime)
+            handler.send_header("Content-Length", str(len(data)))
+            # The URL carries an mtime stamp, so a stored avatar is immutable
+            # for a given URL and safe to cache hard.
+            handler.send_header("Cache-Control", "private, max-age=86400")
+            handler.end_headers()
+            handler.wfile.write(data)
+            return True
+        except Exception as exc:
+            logger.exception("bot avatar read failed")
+            return bad(handler, _sanitize_error(exc), status=500)
+
     if parsed.path == "/api/profiles":
         from api import profiles as profiles_api
         diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger, print_fn=getattr(handler, '_safe_webui_print', None))
@@ -15136,6 +15187,12 @@ def handle_post(handler, parsed) -> bool:
         return handle_upload_extract(handler)
     if parsed.path == "/api/workspace/upload":
         return handle_workspace_upload(handler)
+
+    # ── Bot avatar upload (POST, multipart) — iteration 2 ──
+    # Dispatched here, alongside the other multipart endpoints, because the
+    # generic POST path below parses the body as JSON.
+    if parsed.path == "/api/bots/avatar":
+        return _handle_bot_avatar_upload(handler)
 
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
@@ -16766,6 +16823,25 @@ def handle_post(handler, parsed) -> bool:
 
     if parsed.path in {"/api/gateway/start", "/api/gateway/stop", "/api/gateway/restart"}:
         return _handle_gateway_lifecycle(handler, parsed.path.rsplit("/", 1)[-1], body)
+
+    # ── Bot customization (POST) — display name / avatar reset, iteration 2 ──
+    if parsed.path == "/api/bots/customization":
+        try:
+            from api import bot_customization
+            from api.bots_overview import invalidate_cache
+            _bcz_profile = str((body or {}).get("profile") or "").strip()
+            entry = bot_customization.get_customization(_bcz_profile)
+            if "display_name" in (body or {}):
+                entry = bot_customization.set_display_name(_bcz_profile, body.get("display_name"))
+            if (body or {}).get("clear_avatar"):
+                entry = bot_customization.clear_avatar(_bcz_profile)
+            invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
+            return j(handler, {"ok": True, "profile": _bcz_profile, "customization": entry})
+        except ValueError as exc:
+            return bad(handler, str(exc), 400)
+        except Exception as exc:
+            logger.exception("bot customization write failed")
+            return bad(handler, _sanitize_error(exc), status=500)
 
     # ── Bot Chat continue (POST) — see PLAN-B4-fusion-conversation.md ──
     if parsed.path == "/api/bot-chat/continue":

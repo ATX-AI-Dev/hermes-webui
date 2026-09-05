@@ -7367,9 +7367,20 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
   background: var(--surface); border: 1px solid var(--border-subtle); }
 .bots-details-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   color: var(--muted); font-size: 11px; }
+.bots-custom { display: flex; flex-direction: column; gap: 6px;
+  padding-top: 7px; border-top: 1px solid var(--border-subtle); }
+.bots-custom-row { display: flex; flex-direction: column; gap: 3px;
+  color: var(--muted); font-size: 11px; }
+.bots-custom-name { border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px;
+  background: var(--bg); color: var(--text); font-size: 12px; width: 100%; }
+.bots-custom-file { font-size: 11px; color: var(--muted); max-width: 100%; }
 .bots-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; line-height: 1; color: #fff; margin-top: 1px; }
+/* A user-uploaded picture fills the same 28px circle as the emoji avatar. */
+.bots-avatar--img { object-fit: cover; background: var(--surface-2); }
+/* A bot the user has named reads as a name, not as a profile identifier. */
+.bots-id--named { font-family: inherit; font-size: 13px; font-weight: 500; }
 .bots-row-main { display: flex; flex-wrap: wrap; align-items: center; row-gap: 4px; column-gap: 8px;
   flex: 1; min-width: 0; }
 .bots-row-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 100%; }
