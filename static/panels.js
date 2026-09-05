@@ -1,3 +1,16 @@
+// The root profile is reported under the literal alias 'default'
+// (api/profiles.py::_build_profile_rows_fast) — an internal identifier, not a
+// name to put in front of a person. The backend stamps display_name on every
+// profile row (api/profiles.py::root_profile_display_label); this helper is
+// the single place the UI resolves it, and it also handles the bare
+// active-profile string, which carries no row.
+const ROOT_PROFILE_DISPLAY_NAME = 'Assistant';
+function profileDisplayName(p) {
+  if (p && typeof p === 'object') return p.display_name || p.name || '';
+  const name = String(p || '');
+  return name === 'default' ? ROOT_PROFILE_DISPLAY_NAME : name;
+}
+
 let _currentPanel = 'chat';
 // Sidebar panel pinned in place while the main view moved on (see the
 // opts.keepSidebarPanel block in switchPanel). null = sidebar follows
@@ -7086,7 +7099,7 @@ async function loadProfilesPanel() {
       card.innerHTML = `
         <div class="profile-card-header">
           <div style="min-width:0;flex:1">
-            <div class="profile-card-name${isActive ? ' is-active' : ''}">${gwDot}${esc(p.name)}${defaultBadge}${activeBadge}${hiddenBadge}</div>
+            <div class="profile-card-name${isActive ? ' is-active' : ''}">${gwDot}${esc(profileDisplayName(p))}${defaultBadge}${activeBadge}${hiddenBadge}</div>
             ${meta.length ? `<div class="profile-card-meta">${esc(meta.join(' \u00b7 '))}</div>` : `<div class="profile-card-meta">${esc(t('profile_no_configuration'))}</div>`}
           </div>
         </div>`;
@@ -7258,7 +7271,7 @@ function renderProfileDropdown(data) {
     const gwDot = `<span class="profile-opt-badge ${p.gateway_running ? 'running' : 'stopped'}"></span>`;
     const checkmark = p.name === active ? ' <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--link)" stroke-width="3" style="vertical-align:-1px"><polyline points="20 6 9 17 4 12"/></svg>' : '';
     const defaultBadge = p.is_default ? ` <span style="opacity:.5;font-weight:400">${esc(t('profile_default_label'))}</span>` : '';
-    opt.innerHTML = `<div class="profile-opt-name">${gwDot}${esc(p.name)}${defaultBadge}${checkmark}</div>` +
+    opt.innerHTML = `<div class="profile-opt-name">${gwDot}${esc(profileDisplayName(p))}${defaultBadge}${checkmark}</div>` +
       (meta.length ? `<div class="profile-opt-meta">${esc(meta.join(' \u00b7 '))}</div>` : '');
     opt.onclick = async () => {
       closeProfileDropdown();
@@ -7277,7 +7290,7 @@ function renderProfileDropdown(data) {
   }
   // Sync titlebar label to the resolved active profile
   const tbl = $('titlebarProfileLabel');
-  if (tbl) tbl.textContent = active;
+  if (tbl) tbl.textContent = profileDisplayName(allProfiles.find(p => p.name === active) || active);
 }
 
 function toggleProfileDropdown(e) {

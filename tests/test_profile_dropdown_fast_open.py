@@ -161,6 +161,11 @@ def test_poisoned_profile_cache_opens_then_switches_after_fresh_refresh():
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         globalThis.li = () => '';
+        // Defined at the top of panels.js, outside the snippets extracted
+        // here: resolves the UI name of a profile (the root profile does not
+        // display under its 'default' alias). Stubbed to the same contract.
+        globalThis.profileDisplayName = (p) =>
+          (p && typeof p === 'object') ? (p.display_name || p.name || '') : String(p || '');
         globalThis.closeWsDropdown = () => {{}};
         globalThis.closeModelDropdown = () => {{}};
         globalThis._positionProfileDropdown = () => {{}};

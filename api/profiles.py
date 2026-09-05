@@ -2034,7 +2034,43 @@ def _build_profile_rows_fast() -> list | None:
     return rows
 
 
+# Human-facing name for the root profile (~/.hermes). Upstream reports it under
+# the literal alias 'default' (see _build_profile_rows_fast) — an internal
+# identifier, not something a non-technical user should read in the UI. Only the
+# DISPLAY changes: 'default' stays the identifier everywhere (filesystem paths,
+# API parameters, _is_root_profile, _profiles_match). Mirrored front-side by
+# ROOT_PROFILE_DISPLAY_NAME in static/panels.js.
+_ROOT_PROFILE_DISPLAY_LABEL = 'Assistant'
+
+
+def root_profile_display_label() -> str:
+    """The name the UI shows for the root profile instead of 'default'."""
+    return _ROOT_PROFILE_DISPLAY_LABEL
+
+
+def _with_display_name(row):
+    """Stamp ``display_name`` on one profile row.
+
+    Only the root profile (``is_default``) is relabelled; every other profile
+    displays under its own name. A row that already carries a display_name is
+    left alone.
+    """
+    if not isinstance(row, dict) or row.get('display_name'):
+        return row
+    name = row.get('name')
+    return {**row, 'display_name': root_profile_display_label() if row.get('is_default') else name}
+
+
 def list_profiles_api() -> list:
+    """List all profiles with metadata, plus a UI ``display_name`` per row.
+
+    Thin wrapper around _list_profiles_rows() — see root_profile_display_label
+    for why the root profile does not display under its 'default' alias.
+    """
+    return [_with_display_name(r) for r in (_list_profiles_rows() or [])]
+
+
+def _list_profiles_rows() -> list:
     """List all profiles with metadata, serialized for JSON response.
 
     In isolated profile mode (HERMES_HOME points to ~/.hermes/profiles/<name>),
