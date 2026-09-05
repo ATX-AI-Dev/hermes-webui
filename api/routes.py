@@ -1416,35 +1416,6 @@ def _run_gateway_lifecycle_command(action: str, profile: str | None = None) -> s
     )
 
 
-def _handle_bot_avatar_upload(handler):
-    """POST /api/bots/avatar — store one bot's profile picture (multipart).
-
-    Reuses api.upload.parse_multipart, the same parser behind /api/upload, so
-    there is one multipart implementation in the process. The size and format
-    guards live in api.bot_customization.save_avatar, which sniffs the bytes
-    rather than trusting the uploaded filename.
-    """
-    from api.bot_customization import MAX_AVATAR_BYTES, save_avatar
-    from api.bots_overview import invalidate_cache
-    from api.upload import parse_multipart
-    try:
-        content_type = handler.headers.get("Content-Type", "")
-        content_length = int(handler.headers.get("Content-Length", 0) or 0)
-        if content_length > MAX_AVATAR_BYTES:
-            return bad(handler, f"image too large (max {MAX_AVATAR_BYTES // 1024 // 1024}MB)", 413)
-        fields, files = parse_multipart(handler.rfile, content_type, content_length)
-        if "file" not in files:
-            return bad(handler, "No file field in request", 400)
-        entry = save_avatar(str(fields.get("profile") or "").strip(), files["file"][1])
-        invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
-        return j(handler, {"ok": True, "customization": entry})
-    except ValueError as exc:
-        return bad(handler, str(exc), 400)
-    except Exception as exc:
-        logger.exception("bot avatar upload failed")
-        return bad(handler, _sanitize_error(exc), status=500)
-
-
 def _handle_gateway_lifecycle(handler, action: str, body: dict):
     # Reject overlapping lifecycle actions instead of spawning concurrent
     # `hermes gateway` subprocesses (a non-blocking acquire — the action holds
@@ -14774,57 +14745,22 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/memory":
         return _handle_memory_read(handler, parsed)
 
-    # ── Profile API (GET) ──
     # ── Bot Chat transcript (GET) — palier B / B3, read-only ──
     if parsed.path == "/api/bot-chat":
-        try:
-            from api.bot_mesh import read_bot_chat_transcript
-            from api.profiles import _PROFILE_ID_RE
-            qs = parse_qs(parsed.query)
-            _bc_profile = (qs.get("profile", [""])[0] or "").strip()
-            if not _bc_profile or not _PROFILE_ID_RE.fullmatch(_bc_profile):
-                return bad(handler, "invalid profile", 400)
-            try:
-                _bc_limit = max(1, min(200, int((qs.get("limit", ["60"])[0] or "60").strip())))
-            except ValueError:
-                _bc_limit = 60
-            return j(handler, read_bot_chat_transcript(_bc_profile, limit=_bc_limit))
-        except Exception as exc:
-            logger.exception("bot-chat transcript failed")
-            return bad(handler, _sanitize_error(exc), status=500)
+        from api.bot_mesh import handle_get_transcript
+        return handle_get_transcript(handler, parsed)
 
     # ── Bots overview (GET) — palier B / B2 ──
     if parsed.path == "/api/bots":
-        try:
-            from api.bots_overview import build_bots_overview
-            _bots_use_cache = (parse_qs(parsed.query).get("fresh", ["0"])[0] or "0") not in ("1", "true", "yes")
-            return j(handler, build_bots_overview(use_cache=_bots_use_cache))
-        except Exception as exc:
-            logger.exception("bots overview failed")
-            return bad(handler, _sanitize_error(exc), status=500)
+        from api.bots_overview import handle_get_overview
+        return handle_get_overview(handler, parsed)
 
     # ── Bot avatar (GET) — user-uploaded profile picture, iteration 2 ──
     if parsed.path == "/api/bots/avatar":
-        try:
-            from api.bot_customization import avatar_file
-            found = avatar_file((parse_qs(parsed.query).get("profile", [""])[0] or "").strip())
-            if found is None:
-                return bad(handler, "not found", 404)
-            path, mime = found
-            data = path.read_bytes()
-            handler.send_response(200)
-            handler.send_header("Content-Type", mime)
-            handler.send_header("Content-Length", str(len(data)))
-            # The URL carries an mtime stamp, so a stored avatar is immutable
-            # for a given URL and safe to cache hard.
-            handler.send_header("Cache-Control", "private, max-age=86400")
-            handler.end_headers()
-            handler.wfile.write(data)
-            return True
-        except Exception as exc:
-            logger.exception("bot avatar read failed")
-            return bad(handler, _sanitize_error(exc), status=500)
+        from api.bot_customization import handle_get_avatar
+        return handle_get_avatar(handler, parsed)
 
+    # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
         from api import profiles as profiles_api
         diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger, print_fn=getattr(handler, '_safe_webui_print', None))
@@ -15192,7 +15128,8 @@ def handle_post(handler, parsed) -> bool:
     # Dispatched here, alongside the other multipart endpoints, because the
     # generic POST path below parses the body as JSON.
     if parsed.path == "/api/bots/avatar":
-        return _handle_bot_avatar_upload(handler)
+        from api.bot_customization import handle_post_avatar
+        return handle_post_avatar(handler)
 
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
@@ -16826,36 +16763,13 @@ def handle_post(handler, parsed) -> bool:
 
     # ── Bot customization (POST) — display name / avatar reset, iteration 2 ──
     if parsed.path == "/api/bots/customization":
-        try:
-            from api import bot_customization
-            from api.bots_overview import invalidate_cache
-            _bcz_profile = str((body or {}).get("profile") or "").strip()
-            entry = bot_customization.get_customization(_bcz_profile)
-            if "display_name" in (body or {}):
-                entry = bot_customization.set_display_name(_bcz_profile, body.get("display_name"))
-            if (body or {}).get("clear_avatar"):
-                entry = bot_customization.clear_avatar(_bcz_profile)
-            invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
-            return j(handler, {"ok": True, "profile": _bcz_profile, "customization": entry})
-        except ValueError as exc:
-            return bad(handler, str(exc), 400)
-        except Exception as exc:
-            logger.exception("bot customization write failed")
-            return bad(handler, _sanitize_error(exc), status=500)
+        from api.bot_customization import handle_post_customization
+        return handle_post_customization(handler, body)
 
     # ── Bot Chat continue (POST) — see PLAN-B4-fusion-conversation.md ──
     if parsed.path == "/api/bot-chat/continue":
-        try:
-            from api.bot_mesh import continue_bot_chat
-            from api.profiles import _PROFILE_ID_RE
-            _bcc_profile = str((body or {}).get("profile") or "").strip()
-            if not _bcc_profile or not _PROFILE_ID_RE.fullmatch(_bcc_profile):
-                return bad(handler, "invalid profile", 400)
-            result = continue_bot_chat(_bcc_profile)
-            return j(handler, result, status=200 if result.get("ok") else 400)
-        except Exception as exc:
-            logger.exception("bot-chat continue failed")
-            return bad(handler, _sanitize_error(exc), status=500)
+        from api.bot_mesh import handle_post_continue
+        return handle_post_continue(handler, body)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":

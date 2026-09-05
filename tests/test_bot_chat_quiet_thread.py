@@ -54,7 +54,7 @@ def test_thread_marks_bot_chats_and_machine_rows():
 
 
 def test_css_hides_only_the_plumbing():
-    css = (_STATIC / "style.css").read_text(encoding="utf-8")
+    css = (_STATIC / "bots_panel.css").read_text(encoding="utf-8")
     block = css[css.index('.messages[data-bot-chat="1"] .machine-notice-row'):]
     block = block[:block.index("}") + 1]
     for hidden in ("machine-notice-row", "process-wakeup-row",
@@ -67,7 +67,8 @@ def test_css_hides_only_the_plumbing():
 
 def test_workspace_trace_tab_mirrors_the_todos_tab():
     html = (_STATIC / "index.html").read_text(encoding="utf-8")
-    ws = (_STATIC / "workspace.js").read_text(encoding="utf-8")
+    ws = (_STATIC / "bots_panel.js").read_text(encoding="utf-8")
+    host = (_STATIC / "workspace.js").read_text(encoding="utf-8")
     assert 'id="workspaceTraceTab"' in html and "switchWorkspacePanelTab('trace')" in html
     assert 'id="workspaceTracePanel"' in html
     # hidden by default, exactly like the Todos tab
@@ -75,7 +76,7 @@ def test_workspace_trace_tab_mirrors_the_todos_tab():
     assert " hidden" in trace_btn
     assert "function _loadWorkspacePanelTrace()" in ws
     assert "function syncWorkspaceTraceTab()" in ws
-    assert "tab === 'trace' ? 'trace'" in ws
+    assert "tab === 'trace' ? 'trace'" in host
     # the tab only shows for a Bot Chat that actually has trace
     assert "isBotChatSession()" in ws
     assert "_workspaceTraceEntries().length > 0" in ws
@@ -83,7 +84,9 @@ def test_workspace_trace_tab_mirrors_the_todos_tab():
 
 
 def test_trace_i18n_keys_exist_en_and_fr():
-    i18n = (_STATIC / "i18n.js").read_text(encoding="utf-8")
+    """Fork keys live in i18n_fork.js (en + fr; t() falls back to LOCALES.en
+    for the other locales) — see FORK-CHANGES.md."""
+    i18n = (_STATIC / "i18n_fork.js").read_text(encoding="utf-8")
     for key in ("workspace_trace_tab", "workspace_trace_empty",
                 "workspace_trace_tool", "workspace_trace_process"):
-        assert i18n.count(f"{key}:") >= 2, key
+        assert i18n.count(f"{key}:") == 2, key

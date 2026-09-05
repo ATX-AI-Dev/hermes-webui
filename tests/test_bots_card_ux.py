@@ -19,12 +19,18 @@ from pathlib import Path
 _STATIC = Path(__file__).resolve().parents[1] / "static"
 
 
+def _panel_js() -> str:
+    """The fork's own panel file (extracted from panels.js, see FORK-CHANGES.md)."""
+    return (_STATIC / "bots_panel.js").read_text(encoding="utf-8")
+
+
 def _panels_js() -> str:
+    """Upstream's panels.js — only the integration hooks still live there."""
     return (_STATIC / "panels.js").read_text(encoding="utf-8")
 
 
 def test_card_is_a_button_that_opens_the_conversation():
-    js = _panels_js()
+    js = _panel_js()
     assert 'data-card-act="${cardAct}"' in js
     assert 'role="button" tabindex="0"' in js
     # continue for bots with a Bot Chat, open as the fallback (B4 contract)
@@ -37,7 +43,7 @@ def test_card_is_a_button_that_opens_the_conversation():
 
 
 def test_secondary_actions_live_in_a_folded_area():
-    js = _panels_js()
+    js = _panel_js()
     assert 'data-act="details"' in js
     assert 'class="bots-details" data-details-for=' in js
     assert "function _botsToggleDetails(bot, btn)" in js
@@ -47,14 +53,14 @@ def test_secondary_actions_live_in_a_folded_area():
 
 
 def test_folded_state_survives_a_poll_re_render():
-    js = _panels_js()
+    js = _panel_js()
     assert "const openDetails = new Set();" in js
     assert ".bots-details:not([hidden])" in js
 
 
 def test_model_name_is_not_rendered_on_the_card():
-    js = _panels_js()
-    css = (_STATIC / "style.css").read_text(encoding="utf-8")
+    js = _panel_js()
+    css = (_STATIC / "bots_panel.css").read_text(encoding="utf-8")
     assert "bots-model" not in js
     assert "bots-model" not in css
 
@@ -66,28 +72,31 @@ def test_bots_sidebar_stays_visible_while_a_conversation_is_open():
     #panelBots stays the active sidebar panel — which also means the 15s poll
     can no longer key off _currentPanel.
     """
-    js = _panels_js()
-    assert "let _sidebarStickyPanel = null;" in js
-    assert "if (!opts.keepSidebarPanel) {" in js
-    assert "switchPanel('chat', desktop ? { keepSidebarPanel: true } : {});" in js
-    assert "function _botsPanelVisible()" in js
-    assert "if (!_botsPanelVisible()) return;" in js
+    host = _panels_js()   # the switchPanel hooks stay in upstream's file
+    panel = _panel_js()   # the caller lives in the fork's file
+    assert "let _sidebarStickyPanel = null;" in host
+    assert "if (!opts.keepSidebarPanel) {" in host
     # a rail click on Chat while pinned must restore the session list, not
     # collapse the sidebar
-    assert "prevPanel === nextPanel && !_sidebarStickyPanel" in js
+    assert "prevPanel === nextPanel && !_sidebarStickyPanel" in host
+    assert "switchPanel('chat', desktop ? { keepSidebarPanel: true } : {});" in panel
+    assert "function _botsPanelVisible()" in panel
+    assert "if (!_botsPanelVisible()) return;" in panel
 
 
 def test_open_bot_is_highlighted_in_the_list():
-    js = _panels_js()
-    css = (_STATIC / "style.css").read_text(encoding="utf-8")
+    js = _panel_js()
+    css = (_STATIC / "bots_panel.css").read_text(encoding="utf-8")
     assert "function _botsMarkCurrent(bot)" in js
     assert "row.classList.toggle('is-current'" in js
     assert ".bots-row.is-current" in css
 
 
 def test_style_and_i18n_back_the_new_card():
-    css = (_STATIC / "style.css").read_text(encoding="utf-8")
+    css = (_STATIC / "bots_panel.css").read_text(encoding="utf-8")
     assert ".bots-more-btn" in css
     assert ".bots-details" in css
-    i18n = (_STATIC / "i18n.js").read_text(encoding="utf-8")
-    assert i18n.count("bots_more:") >= 2  # en + fr
+    # Fork keys live in i18n_fork.js and only supply en + fr; t() falls back
+    # to LOCALES.en for the other 13 locales (see FORK-CHANGES.md).
+    i18n = (_STATIC / "i18n_fork.js").read_text(encoding="utf-8")
+    assert i18n.count("bots_more:") == 2

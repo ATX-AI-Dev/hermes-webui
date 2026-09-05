@@ -385,7 +385,6 @@ function switchWorkspacePanelTab(tab){
   }
   const tracePanel = $('workspaceTracePanel');
   if(tracePanel) tracePanel.hidden = _workspacePanelActiveTab !== 'trace';
-  if(_workspacePanelActiveTab === 'trace') _loadWorkspacePanelTrace();
   if(filesTab){
     filesTab.classList.toggle('active', _workspacePanelActiveTab === 'files');
     filesTab.setAttribute('aria-selected', _workspacePanelActiveTab === 'files' ? 'true' : 'false');
@@ -404,72 +403,15 @@ function switchWorkspacePanelTab(tab){
   if(todosPanel) todosPanel.hidden = _workspacePanelActiveTab !== 'todos';
   if(_workspacePanelActiveTab === 'artifacts') renderSessionArtifacts();
   if(_workspacePanelActiveTab === 'todos') _loadWorkspacePanelTodos();
+  // Defined in static/bots_panel.js (fork-only); guarded so this upstream
+  // function still works if that file ever fails to load.
+  if(_workspacePanelActiveTab === 'trace' && typeof _loadWorkspacePanelTrace === 'function') _loadWorkspacePanelTrace();
 }
 
-// ── Bot Chat trace (iteration 2, point 7) ─────────────────────────────────
-// The plumbing the quiet thread hides — tool calls the bot ran, and the
-// process/cronjob wakeups the agent injected into its own session — listed
-// here on demand instead of interleaved with the conversation. Derived from
-// S.messages rather than by moving DOM nodes, so the thread's own rendering
-// (anchors, virtualization) is untouched.
-function _workspaceTraceEntries(){
-  const out = [];
-  const msgs = (typeof S !== 'undefined' && S && Array.isArray(S.messages)) ? S.messages : [];
-  for(const m of msgs){
-    if(!m || !m.role) continue;
-    const text = String((typeof msgContent === 'function' ? msgContent(m) : m.content) || '');
-    if(m.role === 'tool'){
-      out.push({kind:'tool', name:m.tool_name || 'tool', text, ts:m.timestamp});
-    }else if(m.role === 'user'
-        && (m._source === 'process_wakeup'
-            || (typeof _isMachineNoticeText === 'function' && _isMachineNoticeText(text)))){
-      out.push({kind:'process', name:'', text, ts:m.timestamp});
-    }
-  }
-  return out;
-}
-
-function _workspaceTraceRelTime(ts){
-  if(!ts && ts !== 0) return '';
-  const ms = Number(ts) * 1000;
-  if(!Number.isFinite(ms)) return '';
-  try{ return new Date(ms).toLocaleString(); }catch(_){ return ''; }
-}
-
-function _loadWorkspacePanelTrace(){
-  const panel = $('workspaceTracePanel');
-  if(!panel) return;
-  const entries = _workspaceTraceEntries();
-  if(!entries.length){
-    panel.innerHTML = `<div class="ws-trace-empty">${esc(t('workspace_trace_empty'))}</div>`;
-    return;
-  }
-  panel.innerHTML = entries.map(e => {
-    const label = e.kind === 'tool' ? t('workspace_trace_tool') : t('workspace_trace_process');
-    const when = _workspaceTraceRelTime(e.ts);
-    return `<div class="ws-trace-item ws-trace-item--${esc(e.kind)}">
-      <div class="ws-trace-head">
-        <span class="ws-trace-kind">${esc(label)}</span>
-        ${e.name ? `<span class="ws-trace-name">${esc(e.name)}</span>` : ''}
-        ${when ? `<span class="ws-trace-when">${esc(when)}</span>` : ''}
-      </div>
-      ${e.text ? `<div class="ws-trace-body">${esc(e.text)}</div>` : ''}
-    </div>`;
-  }).join('');
-}
-
-// The tab only exists for Bot Chats that actually carry trace: no empty tab in
-// an ordinary conversation. Called from renderMessages, so it follows the open
-// session. Leaving the tab while it is active falls back to Files.
-function syncWorkspaceTraceTab(){
-  const tab = $('workspaceTraceTab');
-  if(!tab) return;
-  const show = (typeof isBotChatSession === 'function' && isBotChatSession())
-    && _workspaceTraceEntries().length > 0;
-  tab.hidden = !show;
-  if(!show && _workspacePanelActiveTab === 'trace') switchWorkspacePanelTab('files');
-  else if(show && _workspacePanelActiveTab === 'trace') _loadWorkspacePanelTrace();
-}
+// The Trace tab's own code (_workspaceTraceEntries / _loadWorkspacePanelTrace /
+// syncWorkspaceTraceTab) lives in static/bots_panel.js — fork-only file, see
+// FORK-CHANGES.md. Only the switchWorkspacePanelTab branch above stays here,
+// because that function is upstream's.
 
 function _loadWorkspacePanelTodos(){
   const panel = $('workspaceTodosPanel');

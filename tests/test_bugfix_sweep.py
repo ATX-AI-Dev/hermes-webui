@@ -88,17 +88,24 @@ def test_auth_sessions_have_lock_and_success_can_clear_login_attempts(monkeypatc
     assert "127.0.0.1" not in auth._login_attempts
 
 
-def _english_i18n_keys():
-    text = (ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
+def _english_keys_in(filename):
+    text = (ROOT / "static" / filename).read_text(encoding="utf-8")
     match = re.search(r"en:\s*\{([\s\S]*?)\n\s*\},\n\s*[a-z]{2}:", text)
-    assert match, "could not find English locale block"
+    assert match, f"could not find English locale block in {filename}"
     return set(re.findall(r"^\s*([A-Za-z0-9_]+):", match.group(1), re.M))
+
+
+def _english_i18n_keys():
+    # The fork keeps its own keys in i18n_fork.js, which merges them into
+    # LOCALES after i18n.js has built it (see FORK-CHANGES.md). Both files
+    # feed this guard, so a t('bots_...') call in bots_panel.js is covered.
+    return _english_keys_in("i18n.js") | _english_keys_in("i18n_fork.js")
 
 
 def _literal_i18n_refs():
     refs = set()
     for path in (ROOT / "static").glob("*.js"):
-        if path.name == "i18n.js":
+        if path.name in ("i18n.js", "i18n_fork.js"):
             continue
         text = path.read_text(encoding="utf-8")
         refs.update(re.findall(r"\bt\(\s*['\"]([A-Za-z0-9_]+)['\"]", text))

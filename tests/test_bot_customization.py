@@ -122,8 +122,8 @@ def test_frontend_renders_name_and_picture():
     from pathlib import Path
 
     static = Path(__file__).resolve().parents[1] / "static"
-    js = (static / "panels.js").read_text(encoding="utf-8")
-    css = (static / "style.css").read_text(encoding="utf-8")
+    js = (static / "bots_panel.js").read_text(encoding="utf-8")
+    css = (static / "bots_panel.css").read_text(encoding="utf-8")
     assert "if (bot.avatar_url) {" in js
     assert "function _botDisplayName(bot)" in js
     assert 'data-act="customize"' in js

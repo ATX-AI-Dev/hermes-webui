@@ -228,3 +228,88 @@ def avatar_url(profile: str, entry: dict | None = None) -> str | None:
         stamp = 0
     from urllib.parse import quote
     return f"/api/bots/avatar?profile={quote(str(profile))}&v={stamp}"
+
+
+# ── HTTP handlers ───────────────────────────────────────────────────────────
+#
+# The bodies live here, not in api/routes.py, so the fork's footprint in that
+# (very large, very hot) upstream file stays a two-line dispatch per route —
+# see FORK-CHANGES.md. `j`, `bad` and `_sanitize_error` are imported inside the
+# functions because api.routes imports this module at dispatch time; a
+# module-level import would be circular.
+
+
+def handle_get_avatar(handler, parsed) -> bool:
+    """GET /api/bots/avatar?profile= — serve one bot's stored picture."""
+    from urllib.parse import parse_qs
+    from api.helpers import j  # noqa: F401  (kept for symmetry with the writers)
+    from api.routes import bad, _sanitize_error
+    try:
+        found = avatar_file((parse_qs(parsed.query).get("profile", [""])[0] or "").strip())
+        if found is None:
+            return bad(handler, "not found", 404)
+        path, mime = found
+        data = path.read_bytes()
+        handler.send_response(200)
+        handler.send_header("Content-Type", mime)
+        handler.send_header("Content-Length", str(len(data)))
+        # The URL carries an mtime stamp, so a stored avatar is immutable for a
+        # given URL and safe to cache hard.
+        handler.send_header("Cache-Control", "private, max-age=86400")
+        handler.end_headers()
+        handler.wfile.write(data)
+        return True
+    except Exception as exc:
+        logger.exception("bot avatar read failed")
+        return bad(handler, _sanitize_error(exc), status=500)
+
+
+def handle_post_customization(handler, body) -> bool:
+    """POST /api/bots/customization — set the display name, or drop the picture."""
+    from api.helpers import j
+    from api.routes import bad, _sanitize_error
+    from api.bots_overview import invalidate_cache
+    try:
+        profile = str((body or {}).get("profile") or "").strip()
+        entry = get_customization(profile)
+        if "display_name" in (body or {}):
+            entry = set_display_name(profile, body.get("display_name"))
+        if (body or {}).get("clear_avatar"):
+            entry = clear_avatar(profile)
+        invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
+        return j(handler, {"ok": True, "profile": profile, "customization": entry})
+    except ValueError as exc:
+        return bad(handler, str(exc), 400)
+    except Exception as exc:
+        logger.exception("bot customization write failed")
+        return bad(handler, _sanitize_error(exc), status=500)
+
+
+def handle_post_avatar(handler) -> bool:
+    """POST /api/bots/avatar — store one bot's picture (multipart).
+
+    Reuses api.upload.parse_multipart, the same parser behind /api/upload, so
+    there is one multipart implementation in the process. The size and format
+    guards live in save_avatar, which sniffs the bytes rather than trusting the
+    uploaded filename.
+    """
+    from api.helpers import j
+    from api.routes import bad, _sanitize_error
+    from api.bots_overview import invalidate_cache
+    from api.upload import parse_multipart
+    try:
+        content_type = handler.headers.get("Content-Type", "")
+        content_length = int(handler.headers.get("Content-Length", 0) or 0)
+        if content_length > MAX_AVATAR_BYTES:
+            return bad(handler, f"image too large (max {MAX_AVATAR_BYTES // 1024 // 1024}MB)", 413)
+        fields, files = parse_multipart(handler.rfile, content_type, content_length)
+        if "file" not in files:
+            return bad(handler, "No file field in request", 400)
+        entry = save_avatar(str(fields.get("profile") or "").strip(), files["file"][1])
+        invalidate_cache()  # the panel polls /api/bots; don't serve a stale card
+        return j(handler, {"ok": True, "customization": entry})
+    except ValueError as exc:
+        return bad(handler, str(exc), 400)
+    except Exception as exc:
+        logger.exception("bot avatar upload failed")
+        return bad(handler, _sanitize_error(exc), status=500)

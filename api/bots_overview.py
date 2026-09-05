@@ -304,3 +304,22 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
 def invalidate_cache() -> None:
     _CACHE["at"] = 0.0
     _CACHE["payload"] = None
+
+
+def handle_get_overview(handler, parsed) -> bool:
+    """GET /api/bots — the whole panel payload. ``?fresh=1`` bypasses the cache.
+
+    Body kept out of api/routes.py so the fork's footprint in that upstream
+    file is a two-line dispatch — see FORK-CHANGES.md. `j`/`bad` are imported
+    inside the function because api.routes imports this module at dispatch
+    time; a module-level import would be circular.
+    """
+    from urllib.parse import parse_qs
+    from api.helpers import j
+    from api.routes import bad, _sanitize_error
+    try:
+        fresh = (parse_qs(parsed.query).get("fresh", ["0"])[0] or "0") in ("1", "true", "yes")
+        return j(handler, build_bots_overview(use_cache=not fresh))
+    except Exception as exc:
+        logger.exception("bots overview failed")
+        return bad(handler, _sanitize_error(exc), status=500)

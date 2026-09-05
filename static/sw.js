@@ -23,16 +23,19 @@ const CACHE_NAME = 'hermes-shell-__WEBUI_VERSION__';
 const VQ = '?v=__WEBUI_VERSION__';
 const SHELL_ASSETS = [
   './static/style.css' + VQ,
+  './static/bots_panel.css' + VQ,   // fork-only, see FORK-CHANGES.md
   './static/pwa-startup.js' + VQ,
   './static/boot.js' + VQ,
   './static/assistant_turn_anchors.js' + VQ,
   './static/ui.js' + VQ,
   './static/messages.js' + VQ,
   './static/sessions.js' + VQ,
+  './static/bots_panel.js' + VQ,    // fork-only, see FORK-CHANGES.md
   './static/panels.js' + VQ,
   './static/commands.js' + VQ,
   './static/icons.js' + VQ,
   './static/i18n.js' + VQ,
+  './static/i18n_fork.js' + VQ,    // fork-only, see FORK-CHANGES.md
   './static/workspace.js' + VQ,
   './static/terminal.js' + VQ,
   './static/onboarding.js' + VQ,

@@ -507,3 +507,47 @@ def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
         # system / other roles: skipped in this compact viewer
 
     return {"exists": True, "session_id": session["session_id"], "turns": turns}
+
+
+# ── HTTP handlers ───────────────────────────────────────────────────────────
+# Bodies kept out of api/routes.py so the fork's footprint in that upstream
+# file is a two-line dispatch per route — see FORK-CHANGES.md. `j`/`bad` are
+# imported inside the functions because api.routes imports this module at
+# dispatch time; a module-level import would be circular.
+
+
+def handle_get_transcript(handler, parsed) -> bool:
+    """GET /api/bot-chat?profile=&limit= — read-only inter-bot thread (B3)."""
+    from urllib.parse import parse_qs
+    from api.helpers import j
+    from api.routes import bad, _sanitize_error
+    try:
+        from api.profiles import _PROFILE_ID_RE
+        qs = parse_qs(parsed.query)
+        profile = (qs.get("profile", [""])[0] or "").strip()
+        if not profile or not _PROFILE_ID_RE.fullmatch(profile):
+            return bad(handler, "invalid profile", 400)
+        try:
+            limit = max(1, min(200, int((qs.get("limit", ["60"])[0] or "60").strip())))
+        except ValueError:
+            limit = 60
+        return j(handler, read_bot_chat_transcript(profile, limit=limit))
+    except Exception as exc:
+        logger.exception("bot-chat transcript failed")
+        return bad(handler, _sanitize_error(exc), status=500)
+
+
+def handle_post_continue(handler, body) -> bool:
+    """POST /api/bot-chat/continue — import a bot's own session and open it (B4)."""
+    from api.helpers import j
+    from api.routes import bad, _sanitize_error
+    try:
+        from api.profiles import _PROFILE_ID_RE
+        profile = str((body or {}).get("profile") or "").strip()
+        if not profile or not _PROFILE_ID_RE.fullmatch(profile):
+            return bad(handler, "invalid profile", 400)
+        result = continue_bot_chat(profile)
+        return j(handler, result, status=200 if result.get("ok") else 400)
+    except Exception as exc:
+        logger.exception("bot-chat continue failed")
+        return bad(handler, _sanitize_error(exc), status=500)
