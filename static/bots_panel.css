@@ -54,6 +54,10 @@
 .bots-details { display: flex; flex-direction: column; gap: 6px;
   margin: 0 6px 6px 42px; padding: 7px 8px; border-radius: 8px;
   background: var(--surface); border: 1px solid var(--border-subtle); }
+/* An author `display` beats the UA rule behind the `hidden` attribute, so the
+   folded areas below need it spelled out or they stay open forever ("···"
+   looked inert — reported 2026-09-06). */
+.bots-details[hidden], .bots-custom[hidden], .bots-chat[hidden] { display: none !important; }
 .bots-details-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   color: var(--muted); font-size: 11px; }
 .bots-custom { display: flex; flex-direction: column; gap: 6px;

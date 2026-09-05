@@ -100,3 +100,16 @@ def test_style_and_i18n_back_the_new_card():
     # to LOCALES.en for the other 13 locales (see FORK-CHANGES.md).
     i18n = (_STATIC / "i18n_fork.js").read_text(encoding="utf-8")
     assert i18n.count("bots_more:") == 2
+
+
+def test_folded_areas_are_actually_hidden_by_the_hidden_attribute():
+    """`hidden` only wins over the UA stylesheet — not over an author `display`.
+
+    .bots-details / .bots-custom / .bots-chat all set `display: flex`, which
+    kept the folded areas permanently open and made "···" look inert (reported
+    2026-09-06). The explicit [hidden] rule is what makes the toggle work.
+    """
+    css = (_STATIC / "bots_panel.css").read_text(encoding="utf-8")
+    rule = next((l for l in css.splitlines() if "[hidden]" in l and "display: none" in l), "")
+    for cls in (".bots-details[hidden]", ".bots-custom[hidden]", ".bots-chat[hidden]"):
+        assert cls in rule, f"{cls} must be in the shared [hidden] rule, got: {rule!r}"
