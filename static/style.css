@@ -7341,10 +7341,28 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
    column (not the wide main content area), so a row must be free to break
    onto 2-3 lines rather than truncate its own action buttons (#lancelot
    "Stop gateway" clipped — reported 2026-09-04). */
+/* The whole card opens the bot's conversation (iteration 2) — it is a
+   role="button" row, like an entry in a chat client's conversation list. The
+   "···" button and everything in .bots-details are the exceptions, handled by
+   branch order in _botsOnClick, not by CSS. */
 .bots-row { display: flex; align-items: flex-start; gap: 8px;
-  padding: 7px 6px; border-top: 1px solid var(--border-subtle); }
+  padding: 7px 6px; border-top: 1px solid var(--border-subtle);
+  cursor: pointer; border-radius: 8px; }
 .bots-row:first-of-type { border-top: 0; }
+.bots-row:hover { background: var(--hover-bg); }
+.bots-row:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
+.bots-row[aria-busy="true"] { opacity: .6; cursor: progress; }
 .bots-row--child { padding-left: 20px; }
+.bots-more-btn { flex: none; align-self: center; border: 0; background: transparent;
+  color: var(--muted); border-radius: 6px; padding: 2px 6px; font-size: 13px;
+  line-height: 1; cursor: pointer; }
+.bots-more-btn:hover { background: var(--accent-bg); color: var(--accent-text); }
+.bots-more-btn[aria-expanded="true"] { color: var(--text); }
+.bots-details { display: flex; flex-direction: column; gap: 6px;
+  margin: 0 6px 6px 42px; padding: 7px 8px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border-subtle); }
+.bots-details-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 11px; }
 .bots-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; line-height: 1; color: #fff; margin-top: 1px; }
@@ -7360,12 +7378,14 @@ html[data-conversation-outline="enabled"] #outlineToggleBtn:not([hidden]){displa
 .bots-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; flex: 1 1 100%;
   color: var(--muted); font-size: 11px; }
 .bots-when { white-space: nowrap; }
-.bots-model { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .7; }
 .bots-pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; font-size: 10px; white-space: nowrap; }
 .bots-pill--perm { border-color: var(--accent); color: var(--accent); }
 .bots-pill--active { border-color: var(--link); color: var(--link); }
 .bots-tag { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 10px; color: var(--muted); }
 .bots-actions { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; }
+/* Inside the folded area the container is a column: don't let the 100% basis
+   above stretch the button row to the full height of .bots-details. */
+.bots-details .bots-actions { flex: 0 0 auto; }
 .bots-btn { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .bots-btn:hover { border-color: var(--muted); }

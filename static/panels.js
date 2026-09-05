@@ -6715,14 +6715,21 @@ async function loadBotsPanel(fresh) {
   if (!_botsDelegderBound) {
     _botsDelegderBound = true;
     panel.addEventListener('click', _botsOnClick);
+    panel.addEventListener('keydown', _botsOnKeydown);
   }
   _ensureBotsPanelPoll();
-  // Bot Chat accordions the user already expanded should stay open across a
-  // poll-driven re-render instead of silently collapsing under them.
+  // Bot Chat accordions and "···" detail areas the user already expanded
+  // should stay open across a poll-driven re-render instead of silently
+  // collapsing under them.
   const openChats = new Set();
   panel.querySelectorAll('.bots-chat:not([hidden])').forEach(box => {
     const id = box.getAttribute('data-chat-for');
     if (id) openChats.add(id);
+  });
+  const openDetails = new Set();
+  panel.querySelectorAll('.bots-details:not([hidden])').forEach(box => {
+    const id = box.getAttribute('data-details-for');
+    if (id) openDetails.add(id);
   });
   try {
     const data = await api('/api/bots' + (fresh ? '?fresh=1' : ''));
@@ -6748,7 +6755,6 @@ async function loadBotsPanel(fresh) {
       }
       const running = !!bot.gateway_running;
       const child = bot.parent ? ' bots-row--child' : '';
-      const model = bot.model ? String(bot.model).split('/').pop() : '';
       const sessions = bot.active_sessions > 0
         ? `<span class="bots-pill">${bot.active_sessions} ${esc(t('bots_col_sessions'))}</span>` : '';
       const last = bot.last_activity ? `<span class="bots-when">${esc(_botsRelTime(bot.last_activity))}</span>` : '';
@@ -6767,12 +6773,19 @@ async function loadBotsPanel(fresh) {
       // one. This is now the single entry point for bots with a Bot Chat;
       // "Open thread" remains only as a fallback for bots that don't have
       // one yet (has_bot_chat === false).
-      const primaryBtn = bot.has_bot_chat
-        ? `<button class="bots-btn" data-bot="${esc(bot.id)}" data-act="continue">${esc(t('bots_continue'))}</button>`
-        : `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="open">${esc(t('bots_open_thread'))}</button>`;
+      //
+      // Iteration 2: that entry point is no longer a button — the WHOLE card
+      // opens the conversation (data-card-act), the way a row in a chat
+      // client's conversation list does. The secondary actions (inter-bot
+      // thread, gateway) and the low-frequency badges (permanent gateway,
+      // session count) moved into a folded "···" area so the card front
+      // carries only what a human reads at a glance.
+      const cardAct = bot.has_bot_chat ? 'continue' : 'open';
+      const cardTitle = bot.has_bot_chat ? t('bots_continue') : t('bots_open_thread');
       const preview = bot.last_message_preview
         ? `<span class="bots-preview">${esc(bot.last_message_preview)}</span>` : '';
-      html += `<div class="bots-row${child}">
+      html += `<div class="bots-row${child}" role="button" tabindex="0"
+        data-bot="${esc(bot.id)}" data-card-act="${cardAct}" title="${esc(cardTitle)}">
         ${_botAvatarHTML(bot)}
         <span class="bots-row-main">
           <span class="bots-row-id">
@@ -6781,12 +6794,16 @@ async function loadBotsPanel(fresh) {
             <span class="bots-role">${esc(bot.role || '')}${bot.tag ? ` <span class="bots-tag">${esc(bot.tag)}</span>` : ''}</span>
           </span>
           ${preview}
-          <span class="bots-meta">${activeBadge}${perm}${last}${sessions}${model ? `<span class="bots-model">${esc(model)}</span>` : ''}</span>
-          <span class="bots-actions">
-            ${primaryBtn}
-            ${chatBtn}
-            ${gwBtn}
-          </span>
+          <span class="bots-meta">${activeBadge}${last}</span>
+        </span>
+        <button class="bots-more-btn" data-bot="${esc(bot.id)}" data-act="details"
+          aria-expanded="false" title="${esc(t('bots_more'))}" aria-label="${esc(t('bots_more'))}">···</button>
+      </div>
+      <div class="bots-details" data-details-for="${esc(bot.id)}" hidden>
+        ${perm || sessions ? `<span class="bots-details-meta">${perm}${sessions}</span>` : ''}
+        <span class="bots-actions">
+          ${chatBtn}
+          ${gwBtn}
         </span>
       </div>`;
       if (bot.has_bot_chat) {
@@ -6795,7 +6812,12 @@ async function loadBotsPanel(fresh) {
     }
     panel.innerHTML = html;
     _botsChatLoaded.clear(); // the accordion DOM nodes above are fresh; re-fetch on next open
-    // Restore accordions the user had open before this (poll-driven) re-render.
+    // Restore what the user had open before this (poll-driven) re-render.
+    // Details first: the Bot Chat accordion is reached through them.
+    openDetails.forEach(id => {
+      const btn = panel.querySelector(`[data-act="details"][data-bot="${CSS.escape(id)}"]`);
+      _botsToggleDetails(id, btn);
+    });
     openChats.forEach(id => {
       const btn = panel.querySelector(`[data-act="chat"][data-bot="${CSS.escape(id)}"]`);
       _botsToggleChat(id, btn);
@@ -6863,40 +6885,81 @@ async function _botsToggleChat(bot, btn) {
   }
 }
 
-async function _botsOnClick(ev) {
-  const btn = ev.target.closest('button[data-bot][data-act]');
-  if (!btn) return;
-  const bot = btn.dataset.bot;
-  const act = btn.dataset.act;
-  if (act === 'open') {
-    try {
+// Fold/unfold one card's secondary actions ("Inter-bot thread", gateway) and
+// its low-frequency badges. Mirrors _botsToggleChat's accordion contract so
+// loadBotsPanel can restore both the same way after a poll re-render.
+function _botsToggleDetails(bot, btn) {
+  const box = document.querySelector('.bots-details[data-details-for="' + CSS.escape(bot) + '"]');
+  if (!box) return;
+  const opening = box.hidden;
+  box.hidden = !opening;
+  if (btn) btn.setAttribute('aria-expanded', String(opening));
+}
+
+// Opening a bot's conversation is one action reachable from two places: the
+// whole card (data-card-act) and, for bots without a Bot Chat, nothing else.
+// Both go through here so the continue → switchToProfile → loadSession chain
+// exists once. _botsOpening guards against a double-click firing two imports.
+let _botsOpening = false;
+async function _botsOpenConversation(bot, act, srcEl) {
+  if (!bot || _botsOpening) return;
+  _botsOpening = true;
+  if (srcEl) srcEl.setAttribute('aria-busy', 'true');
+  try {
+    if (act === 'open') {
       if (typeof switchToProfile === 'function') await switchToProfile(bot);
       if (typeof switchPanel === 'function') switchPanel('chat');
-    } catch (e) {
-      if (typeof showToast === 'function') showToast(String(e && e.message || e));
+      return;
     }
+    const r = await api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
+    if (!r || r.ok === false) {
+      if (typeof showToast === 'function') showToast((r && r.error) || t('bots_action_failed'));
+      return;
+    }
+    if (typeof switchToProfile === 'function') await switchToProfile(bot);
+    if (typeof switchPanel === 'function') switchPanel('chat');
+    if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
+  } finally {
+    _botsOpening = false;
+    if (srcEl) srcEl.removeAttribute('aria-busy');
+  }
+}
+
+function _botsOnKeydown(ev) {
+  if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+  // Buttons inside the card handle their own Enter/Space natively.
+  if (ev.target.closest('button')) return;
+  const card = ev.target.closest('.bots-row[data-card-act]');
+  if (!card) return;
+  ev.preventDefault();
+  _botsOpenConversation(card.dataset.bot, card.dataset.cardAct, card);
+}
+
+async function _botsOnClick(ev) {
+  // Order matters: a click on one of the folded action buttons is handled
+  // here and returns, so it never falls through to the card's "open this
+  // conversation" branch below. One delegated listener, no event-propagation
+  // juggling between nested handlers.
+  const btn = ev.target.closest('button[data-bot][data-act]');
+  if (!btn) {
+    const card = ev.target.closest('.bots-row[data-card-act]');
+    if (card) await _botsOpenConversation(card.dataset.bot, card.dataset.cardAct, card);
+    return;
+  }
+  const bot = btn.dataset.bot;
+  const act = btn.dataset.act;
+  if (act === 'details') {
+    _botsToggleDetails(bot, btn);
+    return;
+  }
+  if (act === 'open' || act === 'continue') {
+    await _botsOpenConversation(bot, act, btn);
     return;
   }
   if (act === 'chat') {
     await _botsToggleChat(bot, btn);
-    return;
-  }
-  if (act === 'continue') {
-    btn.disabled = true;
-    try {
-      const r = await api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
-      if (!r || r.ok === false) {
-        if (typeof showToast === 'function') showToast((r && r.error) || t('bots_action_failed'));
-        return;
-      }
-      if (typeof switchToProfile === 'function') await switchToProfile(bot);
-      if (typeof switchPanel === 'function') switchPanel('chat');
-      if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);
-    } catch (e) {
-      if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
-    } finally {
-      btn.disabled = false;
-    }
     return;
   }
   if ((act === 'start' || act === 'stop') && !_botsPanelBusy) {
