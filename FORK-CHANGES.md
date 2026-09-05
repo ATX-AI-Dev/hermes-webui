@@ -1,7 +1,9 @@
 # Divergences du fork `ATX-AI-Dev/hermes-webui`
 
-Base amont : `nesquena/hermes-webui` @ `e168b67e` (`exp-v0.52.264`).
-Chaque entrée = un écart à rebaser. Voir `PLAN-palier-B.md` pour le contexte.
+Base amont : `nesquena/hermes-webui` @ `e168b67e` (`exp-v0.52.264`, 25/08/2026).
+Chaque entrée = un écart à rebaser. Voir `PLAN-palier-B.md` pour le contexte, et la section
+**Surface de conflit avec l'amont** en fin de fichier pour la procédure de rebase et le
+garde-fou à lancer après chaque mise à jour amont.
 
 ---
 
@@ -177,3 +179,134 @@ corrigé au passage (commit `76bab0ec`) : les rangées débordaient dans le pann
 - Le correctif per-profile-db (`94c4246d`) et le correctif de mise en page (`76bab0ec`)
   **n'ont pas encore été revalidés sur `.178`** — à faire avant de considérer B3 clos.
 - Les 2 vérifs live du plan restent ouvertes : pilotage depuis WebUI, fuite Pro/Perso.
+
+---
+
+## B4 — continuer la vraie conversation d'un bot depuis WebUI
+
+**Branche** : `feat/b4-continue-bots` (part de `feat/b3-bot-chat-viewer`).
+**Objectif** : lever la limite « lecture seule » de B3 — répondre dans WebUI doit continuer la
+session agent-native du bot (« Bot Chat »), pas ouvrir une session WebUI parallèle.
+
+### Backend
+
+| Fichier | Rôle | Couplage amont |
+| :-- | :-- | :-- |
+| `api/bot_mesh.py` | `continue_bot_chat(profil)` : importe la session réelle du bot dans le store WebUI **sous son vrai `session_id`**, en déléguant à `get_cli_session_messages` + `import_cli_session`. `resync_bot_chat_if_stale` : re-import quand la base du bot a grossi hors WebUI. `last_bot_chat_snippet*` : aperçu du dernier tour. | **`api.models.get_cli_session_messages` / `import_cli_session`** — le pont « importer une session CLI » déjà en place côté amont. |
+| `api/streaming.py` | WebUI devient participant du bail d'exclusivité de session de l'agent (`_bot_chat_lease`) : deux surfaces ne streament plus la même session Bot Chat en même temps. | Protocole de bail côté hermes-agent — non contractuel, isolé dans `api/bot_mesh.py`. |
+| `api/routes.py` | `POST /api/bot-chat/continue`. Live-refresh branché dans le `GET /api/session` métadonnées-seules (réutilise le heartbeat 30 s existant du front plutôt qu'un 2e polling). | — |
+
+### Frontend
+
+Rendu dédié des tours de relais **entrants** (`_relayInboundMatch`, texte
+`Message from 🤖 x (@x): …` écrit par l'agent) et des appels `message_agent` **sortants**
+(carte outil `relay`). Tests : `tests/test_bot_mesh_continue.py`,
+`test_bot_mesh_session_lease.py`, `test_bot_chat_live_refresh.py`,
+`test_relay_inbound_message_card.py`, `test_message_agent_tool_card.py`.
+
+### Validé
+
+Déployé et vérifié sur `.178` — voir `PLAN-B4-fusion-conversation.md` pour le journal des
+validations live (import multi-bots, tours réels, bots à la demande).
+
+---
+
+## B4-UX — refonte du panneau Bots, itérations 1 et 2
+
+**Branche** : `feat/b4-continue-bots` (suite).
+
+### Itération 1 (commit `05a7da0a`) — déployée
+
+Vignette avatar par bot (`emoji` + `color` dans `api/bots_hierarchy.json`, repli couleur par
+hash côté front), aperçu du dernier message, polling 15 s du panneau.
+
+### Itération 2 (commits `b36b9832` → `d6679839`)
+
+Demandée par Ludo après avoir vu l'itération 1 en prod. Feuille de route d'origine :
+`PROMPT-bots-panel-ux-rework.md`.
+
+| # | Changement | Fichiers |
+| :-- | :-- | :-- |
+| 1-5 | Vignette entière cliquable (`data-card-act`, `role="button"`, clavier) ; actions secondaires, pastille « N sessions » et badge passerelle permanente repliés derrière un `···` ; nom du modèle retiré. | `static/bots_panel.js`, `static/bots_panel.css` |
+| 6 | Panneau Bots **collant** : `switchPanel(name, {keepSidebarPanel:true})` ne change que la vue centrale, la sidebar garde son panneau affiché. Le polling de la liste se cale sur la visibilité réelle de `#panelBots`, plus sur `_currentPanel`. | `static/panels.js` (hooks), `static/bots_panel.js` |
+| 7 | Fil « Bot Chat » épuré : `#messages[data-bot-chat]` masque les réveils machine (`[IMPORTANT: Background process …]`, `[Cronjob "…" …]`) et la barre de trace ; le contenu masqué est listé à la demande dans un onglet **Trace** du panneau Workspace. | `static/ui.js`, `static/workspace.js`, `static/bots_panel.js` |
+| 8 | Doublon `default` : `list_profiles_api` renvoie deux lignes homonymes quand `<HERMES_HOME>/profiles/default/` existe **en plus** du home de base (confirmé sur `.178`), parce que `_build_profile_rows_fast` code en dur le nom `'default'` pour le home de base. Dédoublonnage par nom **dans le panneau seulement**. | `api/bots_overview.py` |
+| 9 | Profil racine affiché **« Assistant »** : `root_profile_display_label()` + `display_name` sur chaque ligne de `list_profiles_api`, résolu côté front par `profileDisplayName()`. Affichage seul — `default` reste l'identifiant partout. | `api/profiles.py`, `static/panels.js`, `static/boot.js` |
+| 10 | Bouton Bots en 2e position du rail (deux copies), icône tête de robot. | `static/index.html` |
+| 11 | Branche `"hidden": true` dans `bots_hierarchy.json` : les profils internes sortent de la liste **et** des compteurs, avant même le scan des `state.db`. | `api/bots_overview.py`, `api/bots_hierarchy.json` |
+| 12 | Personnalisation par bot (nom + photo) : store dédié `<HERMES_HOME>/webui/bot_customization.json` + `bot_avatars/`. Format d'image déterminé en **reniflant les octets**, jamais d'après le nom du fichier envoyé. | `api/bot_customization.py` (nouveau) |
+
+**Réserve assumée (point 7)** : les tableaux de statut consolidés sont du markdown d'assistant
+ordinaire — c'est le bot qui les écrit. Les masquer masquerait du contenu légitime ; c'est le
+prompt du bot qu'il faut changer, pas le front.
+
+**Limite connue (point 8)** : le doublon est corrigé **dans le panneau Bots seulement**. Il
+reste visible partout où `list_profiles_api` alimente l'UI (sélecteur de profil, panneau Agent
+profiles). Corriger à la source déplacerait ces deux surfaces — à traiter séparément.
+
+---
+
+## Surface de conflit avec l'amont
+
+`master` est un **miroir pur** de `nesquena/hermes-webui` (aucun commit fork dessus). Tout le
+fork vit sur les branches `feat/b*`, rebasées sur `upstream/master` à chaque release amont —
+**rebase, jamais merge de l'amont dans la branche**, sinon la pile de divergences devient
+illisible et ce fichier perd son sens.
+
+### Fichiers 100 % fork (ne peuvent jamais entrer en conflit)
+
+`api/bot_mesh.py`, `api/bots_overview.py`, `api/bot_customization.py`, `api/bots_hierarchy.json`,
+`static/bots_panel.js`, `static/bots_panel.css`, `static/i18n_fork.js`, et tous les
+`tests/test_bot*.py` / `tests/test_bots*.py` / `test_gateway_multiprofile_b1.py` /
+`test_relay_inbound_message_card.py` / `test_message_agent_tool_card.py` /
+`test_root_profile_display_name.py` / `test_fork_upstream_contract.py`.
+
+### Extraction (05/09/2026) — pourquoi ces trois fichiers existent
+
+Le front du panneau Bots vivait dans `static/panels.js` (+522 lignes), ses styles à la fin de
+`static/style.css` (+134), et ses ~34 clés i18n étaient recopiées dans les **15** blocs de
+locale de `static/i18n.js` (+497). Soit ~1 150 lignes ajoutées dans trois des fichiers les plus
+chauds de l'amont, pour du code que l'amont ne touche jamais : chaque release devenait un
+conflit de rebase gratuit. Extraits vers `bots_panel.js` / `bots_panel.css` / `i18n_fork.js` :
+
+* `static/i18n.js` et `static/style.css` sont désormais **identiques à l'amont** (zéro conflit).
+* `i18n_fork.js` ne fournit que **en + fr** : `t()` retombe déjà sur `LOCALES.en` pour toute clé
+  manquante, donc les 13 autres locales se comportent exactement comme quand elles portaient le
+  texte anglais recopié.
+* Les corps des handlers HTTP du fork ont quitté `api/routes.py` pour les modules qui possèdent
+  la fonctionnalité (`bot_mesh`, `bots_overview`, `bot_customization`) — chaque route du fork
+  n'est plus qu'un aiguillage de deux lignes. `j` / `bad` / `_sanitize_error` sont importés
+  **dans** les fonctions : `api.routes` importe ces modules au moment de l'aiguillage, un import
+  au niveau module serait circulaire.
+
+Ordre de chargement (dans `static/index.html`, et à répliquer dans `static/sw.js`) :
+`bots_panel.css` **après** `style.css` (une règle fork gagne une égalité de spécificité),
+`i18n_fork.js` **après** `i18n.js` (il écrit dans `LOCALES`), `bots_panel.js` **avant**
+`panels.js`.
+
+### Ce qui reste dans les fichiers amont (surface irréductible)
+
+| Fichier | Lignes | Pourquoi ça ne peut pas sortir |
+| :-- | --: | :-- |
+| `api/routes.py` | ~190 | B1 modifie l'**intérieur** de fonctions amont (`_gateway_status_payload`, `_run_gateway_lifecycle_command`, `_handle_gateway_lifecycle`) ; le reste est l'aiguillage des routes du fork. |
+| `static/ui.js` | ~100 | Rendu des relais et des cartes d'outil **entrelacé** avec le code amont (`_toolActionKind`, tables de verbes, mappes d'icônes). Extraire les ~55 lignes autonomes laisserait quand même ~45 lignes entrelacées : un rebase devrait ouvrir le fichier de toute façon. Non fait délibérément. |
+| `api/streaming.py` | ~45 | Bail d'exclusivité de session, à l'intérieur de la boucle de streaming amont. |
+| `api/profiles.py` | ~36 | `list_profiles_api` devient un wrapper autour de `_list_profiles_rows`. |
+| `static/index.html` | ~18 | Chargement des 3 assets fork, bouton Bots du rail (×2), panneau `#panelBots`, onglet Trace. |
+| `static/workspace.js` | ~17 | Branche `trace` dans `switchWorkspacePanelTab` (fonction amont). |
+| `static/panels.js` | ~51 | Hooks `switchPanel` (`keepSidebarPanel`, `loadBotsPanel`) + `profileDisplayName`. |
+| `static/sw.js` | 3 | Les 3 assets fork dans le cache du service worker. |
+| `static/boot.js` | 3 | Libellé du profil actif au boot. |
+
+Total : **~1 176 lignes ajoutées avant l'extraction, ~460 après**.
+
+### Garde-fou
+
+`tests/test_fork_upstream_contract.py` vérifie que chaque helper **privé** de l'amont dont le
+fork dépend existe toujours (`api.profiles._tls`, `_PROFILE_ID_RE`, `_resolve_base_hermes_home`,
+`_build_profile_rows_fast`, `api.models.get_cli_session_messages` / `import_cli_session`,
+`api.upload.parse_multipart`, `hermes_cli.profiles._check_gateway_running`), ainsi que les
+contrats implicites (titre de session `'Bot Chat'`, grammaire des réveils de processus, repli
+`LOCALES.en` de `t()`, ordre de chargement des assets). La plupart de ces appels vivent dans des
+`try/except` — sans ce test, une disparition côté amont serait **silencieuse**. À lancer en
+premier après chaque `git rebase upstream/master`.
