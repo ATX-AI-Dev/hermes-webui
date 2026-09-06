@@ -372,6 +372,61 @@ C1 n'est pas ce qui manque. Ce qui manque est l'affichage (C2).
 
 ---
 
+## C2 — une seconde conversation épinglée (étape 1, 06/09/2026)
+
+Cadrage de Ludo : « on attaque le 2 dans l'esprit de s'orienter par la suite sur le 3 ». D'où la
+forme — un objet panneau réutilisable, pas un second conteneur bricolé.
+
+### Le verrou levé, et pourquoi ce n'était pas l'affichage
+
+Le spike C1 avait déjà disculpé le moteur. Le vrai blocage était que **le profil d'une requête
+vient d'un cookie** (`server.py` → `api.profiles.set_request_profile`) : un navigateur envoie un
+seul cookie par onglet, donc deux zones de la page ne pouvaient pas s'adresser à deux bots.
+Concrètement, `/api/chat/start` répond `Session not found` pour une session hors du profil de la
+requête (`_session_visible_to_active_profile`).
+
+| Fichier | Changement | Couplage amont |
+| :-- | :-- | :-- |
+| `api/pane_profile.py` (nouveau, 100 % fork) | `request_profile()` : en-tête `X-Hermes-Profile` prioritaire sur le cookie ; `POST /api/profile/pane-token` frappe la valeur **signée**. | `api.auth.sign_profile_cookie_value` / `verify_profile_cookie_value` / `parse_cookie` / `is_auth_enabled`, `api.helpers.get_profile_cookie` |
+| `server.py` | 2 sites (`do_GET`, `_handle_write`) passent par `_fork_request_profile()`, + le helper. **Repli** sur `get_profile_cookie` si le module du fork manque : le serveur ne doit jamais tomber pour un fichier absent. | fonction amont inchangée, appelée en repli |
+| `static/bot_pane.js` (nouveau, 100 % fork) | Le panneau : import, rendu (réutilise `_botsRenderChatTurns`), composeur, envoi, poll propre (4 s au repos, 1,5 s pendant un tour), « Basculer ici ». | `api`, `esc`, `t`, `S.activeProfile` (lecture seule), `_botsOpenConversation` |
+| `static/bots_panel.js` | action « Épingler à côté » dans le repli `···`. | — |
+| `static/index.html` / `sw.js` / `bots_panel.css` / `i18n_fork.js` | conteneur `#botPane`, asset + cache SW, styles, 8 clés. | — |
+
+**L'en-tête n'est pas un cookie affaibli.** L'amont signe le cookie de profil quand l'auth est
+active, précisément pour qu'un client ne puisse pas se déclarer un autre profil ; l'en-tête porte
+**la même valeur signée**, frappée par le serveur. Nom nu accepté uniquement en mode sans
+authentification, où le cookie n'est lui aussi qu'une préférence. Un en-tête personnalisé exige
+une origine identique, donc pas de nouveau vecteur CSRF.
+
+**Vérifié en conditions réelles** (instance jetable sans auth, `.178`, port 8796) : le même
+`POST /api/chat/start` sur la Bot Chat de `venec` répond `{"error": "Session not found"}` sans
+en-tête, et démarre le tour avec `X-Hermes-Profile: venec` — le message est arrivé dans le vrai
+fil de `venec`.
+
+### Ce que le panneau n'a pas, et pourquoi c'est assumé
+
+Pas de panneau workspace, pas d'onglet Trace, pas d'approbation d'outil : ces surfaces lisent
+l'état global `S`. Un tour du panneau qui demanderait une approbation resterait donc bloqué —
+d'où **« Basculer ici »**, qui échange le panneau et la conversation principale. C'est la sortie
+de secours, et le premier pas vers des panneaux symétriques.
+
+**Le panneau n'écrit jamais dans `S`** (test `test_pane_state_never_touches_the_global_session_state`) :
+c'est la condition pour que l'étape « N panneaux » soit une généralisation et non une réécriture.
+
+**Épingler le bot déjà ouvert en principal est refusé** : les deux surfaces se battraient pour le
+bail d'exclusivité de session de l'agent.
+
+### Limites connues (étape 1)
+
+- Le fil du panneau est rafraîchi par **poll**, pas par SSE. Suffisant à 1,5 s pendant un tour ;
+  un second flux SSE est l'incrément suivant.
+- Le rendu réutilise le moteur compact du panneau Bots : pas de markdown riche ni de cartes
+  d'outil comme la conversation principale.
+- **Un seul** panneau secondaire. Le passage à N est un changement de conteneur, pas de modèle.
+
+---
+
 ## Surface de conflit avec l'amont
 
 `master` est un **miroir pur** de `nesquena/hermes-webui` (aucun commit fork dessus). Tout le
@@ -382,12 +437,14 @@ illisible et ce fichier perd son sens.
 ### Fichiers 100 % fork (ne peuvent jamais entrer en conflit)
 
 `api/bot_mesh.py`, `api/bots_overview.py`, `api/bot_customization.py`, `api/bots_hierarchy.json`,
-`api/fork_time_context.py`, `api/bot_seen.py`, `api/bot_channels.py`,
+`api/fork_time_context.py`, `api/bot_seen.py`, `api/bot_channels.py`, `api/pane_profile.py`,
+`static/bot_pane.js`,
 `static/bots_panel.js`, `static/bots_panel.css`, `static/i18n_fork.js`, et tous les
 `tests/test_bot*.py` / `tests/test_bots*.py` / `test_gateway_multiprofile_b1.py` /
 `test_relay_inbound_message_card.py` / `test_message_agent_tool_card.py` /
 `test_root_profile_display_name.py` / `test_fork_upstream_contract.py` / `test_fork_time_context.py` /
-`test_profile_isolation.py` / `test_concurrent_bot_isolation_c1.py`.
+`test_profile_isolation.py` / `test_concurrent_bot_isolation_c1.py` / `test_pane_profile.py` /
+`test_bot_pane_c2.py`.
 
 ### Extraction (05/09/2026) — pourquoi ces trois fichiers existent
 
@@ -423,7 +480,8 @@ Ordre de chargement (dans `static/index.html`, et à répliquer dans `static/sw.
 | `static/index.html` | ~18 | Chargement des 3 assets fork, bouton Bots du rail (×2), panneau `#panelBots`, onglet Trace. |
 | `static/workspace.js` | ~17 | Branche `trace` dans `switchWorkspacePanelTab` (fonction amont). |
 | `static/panels.js` | ~51 | Hooks `switchPanel` (`keepSidebarPanel`, `loadBotsPanel`) + `profileDisplayName`. |
-| `static/sw.js` | 3 | Les 3 assets fork dans le cache du service worker. |
+| `server.py` | ~15 | Résolution du profil de la requête via le fork (2 sites + helper de repli) — C2. |
+| `static/sw.js` | 4 | Les assets fork dans le cache du service worker. |
 | `static/boot.js` | 3 | Libellé du profil actif au boot. |
 
 Total : **~1 176 lignes ajoutées avant l'extraction, ~460 après**.

@@ -325,7 +325,9 @@ Décisions de Ludo : **D1** détection seule · **D2** panneau Bots transverse �
 
 **Ce qui reste ouvert, et pourquoi :**
 
-1. **C2** — l'affichage multi-bots, seul vrai reste-à-faire du palier C. Trois formes possibles,
-   à trancher avec Ludo : voir §6 du rapport de spike.
+1. **C2** — forme **2 retenue par Ludo** (une seconde conversation épinglée), en visant la 3.
+   **Étape 1 livrée le 06/09/2026** : le verrou du profil-par-cookie est levé
+   (`api/pane_profile.py`), le panneau existe et sait répondre. Restent, par ordre : un flux SSE
+   au lieu du poll, le rendu riche, puis N panneaux.
 3. **Vault** — plusieurs notes sont à mettre à jour (workspace par bot, dossier `default`
    retiré, scripts d'exploitation, verdict du spike). À faire **avec** Ludo, pas à sa place.
