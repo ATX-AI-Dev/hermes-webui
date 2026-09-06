@@ -111,7 +111,7 @@ def _sessions_for_one_profile(name: str) -> dict | None:
                 "       MAX(last_activity_at) AS last "
                 "FROM sessions WHERE COALESCE(archived, 0) = 0"
             ).fetchone()
-            preview = _last_message_preview_on_connection(con, name)
+            preview, message_count = _bot_chat_stats_on_connection(con, name)
         finally:
             con.close()
     except Exception:
@@ -119,13 +119,22 @@ def _sessions_for_one_profile(name: str) -> dict | None:
         return None
     if not row:
         return None
-    return {"active": int(row[0] or 0), "last_activity": row[1], "last_message_preview": preview}
+    return {
+        "active": int(row[0] or 0),
+        "last_activity": row[1],
+        "last_message_preview": preview,
+        "bot_chat_messages": message_count,
+    }
 
 
-def _last_message_preview_on_connection(con: sqlite3.Connection, name: str) -> str | None:
-    """Short preview of the bot's most recent Bot Chat turn, reusing the
-    ``state.db`` connection ``_sessions_for_one_profile`` already opened for
-    that profile rather than opening a second one just for this.
+def _bot_chat_stats_on_connection(con: sqlite3.Connection, name: str) -> tuple[str | None, int | None]:
+    """``(aperçu, nombre de messages)`` de la Bot Chat, sur la connexion que
+    ``_sessions_for_one_profile`` a déjà ouverte pour ce profil — plutôt que
+    d'en ouvrir une seconde par bot.
+
+    Le compte sert au badge « non lu » (``api/bot_seen.py``) : c'est le même
+    compteur de lignes que ``bot_mesh.resync_bot_chat_if_stale`` utilise pour
+    décider d'un ré-import, donc les deux surfaces parlent de la même chose.
     """
     try:
         bot_chat_row = con.execute(
@@ -134,15 +143,24 @@ def _last_message_preview_on_connection(con: sqlite3.Connection, name: str) -> s
         ).fetchone()
     except Exception:
         logger.debug("bots_overview: bot chat lookup failed for %s", name, exc_info=True)
-        return None
+        return None, None
     if not bot_chat_row:
-        return None
+        return None, None
+    session_id = bot_chat_row[0]
+    try:
+        count_row = con.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        message_count = int(count_row[0]) if count_row else None
+    except Exception:
+        logger.debug("bots_overview: message count failed for %s", name, exc_info=True)
+        message_count = None
     try:
         from api.bot_mesh import last_bot_chat_snippet_from_connection
-        return last_bot_chat_snippet_from_connection(con, bot_chat_row[0])
+        return last_bot_chat_snippet_from_connection(con, session_id), message_count
     except Exception:
         logger.debug("bots_overview: snippet read failed for %s", name, exc_info=True)
-        return None
+        return None, message_count
 
 
 def _sessions_by_profile(names: list[str]) -> dict[str, dict]:
@@ -202,7 +220,7 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
     Each bot: ``id, display_name, avatar_url, role, description, emoji, color,
     branch, parent, manager, tag, permanent_gateway, gateway_running, model,
     skill_count, is_active, is_known (in the hierarchy map), active_sessions,
-    last_activity, last_message_preview``.
+    last_activity, last_message_preview, bot_chat_messages, unread``.
     """
     now = time.time()
     if use_cache and _CACHE["payload"] is not None and (now - _CACHE["at"]) < _CACHE_TTL:
@@ -245,6 +263,17 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
         logger.debug("bots_overview: customization load failed", exc_info=True)
         custom, avatar_url = {}, (lambda *_a, **_k: None)
 
+    # Badge « non lu » : le store pose sa ligne de base au premier passage, donc
+    # un bot jamais ouvert démarre à zéro plutôt qu'avec tout son historique.
+    try:
+        from api.bot_seen import baseline_unseen_profiles, unread_for
+        seen_counts = baseline_unseen_profiles({
+            n: (sessions.get(n) or {}).get("bot_chat_messages") for n in names
+        })
+    except Exception:
+        logger.debug("bots_overview: seen store unavailable", exc_info=True)
+        seen_counts, unread_for = {}, (lambda *_a, **_k: 0)
+
     bots: list[dict] = []
     for r in rows:
         name = str(r.get("name") or "").strip()
@@ -277,6 +306,8 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
                 "active_sessions": sess.get("active", 0),
                 "last_activity": sess.get("last_activity"),
                 "last_message_preview": sess.get("last_message_preview"),
+                "bot_chat_messages": sess.get("bot_chat_messages"),
+                "unread": unread_for(sess.get("bot_chat_messages"), seen_counts.get(name)),
                 "has_bot_chat": name in bot_chat_profiles,
             }
         )
@@ -294,6 +325,9 @@ def build_bots_overview(*, use_cache: bool = True) -> dict:
             "total": len(bots),
             "gateways_up": sum(1 for b in bots if b["gateway_running"]),
             "active_sessions": sum(b["active_sessions"] for b in bots),
+            # Total porté par le bouton Bots du rail : c'est le seul endroit où
+            # un message arrivé pendant qu'on regarde ailleurs devient visible.
+            "unread": sum(b["unread"] for b in bots),
         },
     }
     _CACHE["at"] = now

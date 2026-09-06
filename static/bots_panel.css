@@ -170,3 +170,15 @@
 .agent-drift-btn:hover { border-color: var(--muted); }
 .agent-drift-btn--primary { background: var(--accent-bg); color: var(--accent-text);
   border-color: var(--accent); font-weight: 600; }
+
+/* Badge « non lu » — combien de messages sont arrivés dans la Bot Chat depuis
+   la dernière ouverture. Le repère vit côté serveur (api/bot_seen.py) pour que
+   le compte soit le même sur le téléphone et sur le poste. */
+.bots-unread { flex: none; align-self: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--link); color: #fff; font-size: 10px; font-weight: 600;
+  line-height: 18px; text-align: center; }
+/* Sur le bouton Bots du rail : la seule trace visible quand on regarde ailleurs. */
+[data-panel="bots"] { position: relative; }
+.bots-rail-badge { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px;
+  padding: 0 4px; border-radius: 999px; background: var(--link); color: #fff; font-size: 9px;
+  font-weight: 600; line-height: 15px; text-align: center; pointer-events: none; }

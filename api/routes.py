@@ -16780,6 +16780,11 @@ def handle_post(handler, parsed) -> bool:
         from api.bot_customization import handle_post_customization
         return handle_post_customization(handler, body)
 
+    # ── Bot unread marker (POST) — see api/bot_seen.py ──
+    if parsed.path == "/api/bots/seen":
+        from api.bot_seen import handle_post_seen
+        return handle_post_seen(handler, body)
+
     # ── Bot Chat continue (POST) — see PLAN-B4-fusion-conversation.md ──
     if parsed.path == "/api/bot-chat/continue":
         from api.bot_mesh import handle_post_continue

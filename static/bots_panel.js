@@ -98,6 +98,70 @@ function _stopBotsPanelPoll() {
   _botsPollTimer = null;
 }
 
+// ── Badge « non lu » ────────────────────────────────────────────────────────
+// Nombre de lignes de la Bot Chat de chaque bot au dernier rendu. Sert à dire
+// au serveur JUSQU'OÙ on a lu quand on ouvre une conversation : marquer « lu »
+// sans compte ferait perdre les messages arrivés entre deux rafraîchissements.
+const _botsMessageCounts = new Map();
+
+// Le badge du rail doit bouger même quand le panneau Bots n'est pas affiché --
+// c'est tout son intérêt : savoir qu'un bot a répondu pendant qu'on regardait
+// ailleurs. D'où un second poll, plus lent, qui ne touche QUE le badge.
+// /api/bots est mis en cache 3 s côté serveur, donc les deux polls ne se
+// marchent pas dessus.
+let _botsBadgeTimer = null;
+function _ensureBotsBadgePoll() {
+  if (_botsBadgeTimer) return;
+  _botsBadgeTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (_botsPanelVisible()) return; // le poll du panneau s'en charge déjà
+    _refreshBotsUnreadBadge();
+  }, 60000);
+}
+
+async function _refreshBotsUnreadBadge() {
+  try {
+    const data = await api('/api/bots', { timeoutToast: false });
+    _setBotsRailBadge((data && data.counts && data.counts.unread) || 0);
+  } catch (e) {
+    // Un badge est un confort : une erreur réseau ne doit produire ni toast ni
+    // bruit console. On retentera au tick suivant.
+  }
+}
+
+// Le badge est injecté par JS plutôt que posé dans index.html : deux copies du
+// bouton Bots (rail + sidebar mobile) et zéro ligne de plus dans un fichier
+// amont.
+function _setBotsRailBadge(count) {
+  document.querySelectorAll('[data-panel="bots"]').forEach(btn => {
+    let badge = btn.querySelector('.bots-rail-badge');
+    if (!count) { if (badge) badge.remove(); return; }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'bots-rail-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.setAttribute('aria-label', t('bots_unread'));
+  });
+}
+
+// Marque la conversation d'un bot comme lue jusqu'au compte connu du dernier
+// rendu. Best-effort : si l'appel échoue, le badge reparaîtra au prochain
+// passage -- c'est le bon sens de l'erreur (mieux vaut un badge en trop qu'un
+// message manqué).
+async function _botsMarkSeen(bot) {
+  const count = _botsMessageCounts.get(bot);
+  if (count === undefined || count === null) return;
+  try {
+    await api('/api/bots/seen', {
+      method: 'POST',
+      body: JSON.stringify({ profile: bot, count }),
+      timeoutToast: false,
+    });
+  } catch (e) { /* voir ci-dessus */ }
+}
+
 async function loadBotsPanel(fresh) {
   const panel = $('botsPanel');
   if (!panel) return;
@@ -107,6 +171,7 @@ async function loadBotsPanel(fresh) {
     panel.addEventListener('keydown', _botsOnKeydown);
   }
   _ensureBotsPanelPoll();
+  _ensureBotsBadgePoll();
   // Bot Chat accordions and "···" detail areas the user already expanded
   // should stay open across a poll-driven re-render instead of silently
   // collapsing under them.
@@ -128,6 +193,13 @@ async function loadBotsPanel(fresh) {
       return;
     }
     const c = data.counts || {};
+    _setBotsRailBadge(c.unread || 0);
+    _botsMessageCounts.clear();
+    bots.forEach(b => {
+      if (b && b.id && typeof b.bot_chat_messages === 'number') {
+        _botsMessageCounts.set(b.id, b.bot_chat_messages);
+      }
+    });
     const branchLabels = {};
     (data.branches || []).forEach(b => { if (b && b.id) branchLabels[b.id] = b.label || b.id; });
 
@@ -178,6 +250,12 @@ async function loadBotsPanel(fresh) {
       const cardTitle = bot.has_bot_chat ? t('bots_continue') : t('bots_open_thread');
       const preview = bot.last_message_preview
         ? `<span class="bots-preview">${esc(bot.last_message_preview)}</span>` : '';
+      // Badge « non lu » : nombre de messages arrivés dans la Bot Chat depuis
+      // la dernière ouverture (repère stocké côté serveur, api/bot_seen.py, pour
+      // qu'il soit le même sur le téléphone et sur le poste). Au-delà de 99 on
+      // arrête de compter — la carte doit rester lisible.
+      const unread = Number(bot.unread) > 0
+        ? `<span class="bots-unread" title="${esc(t('bots_unread'))}">${bot.unread > 99 ? '99+' : bot.unread}</span>` : '';
       html += `<div class="bots-row${child}${current}" role="button" tabindex="0"
         data-bot="${esc(bot.id)}" data-card-act="${cardAct}" title="${esc(cardTitle)}">
         ${_botAvatarHTML(bot)}
@@ -190,6 +268,7 @@ async function loadBotsPanel(fresh) {
           ${preview}
           <span class="bots-meta">${activeBadge}${last}</span>
         </span>
+        ${unread}
         <button class="bots-more-btn" data-bot="${esc(bot.id)}" data-act="details"
           aria-expanded="false" title="${esc(t('bots_more'))}" aria-label="${esc(t('bots_more'))}">···</button>
       </div>
@@ -453,6 +532,11 @@ async function _botsOpenConversation(bot, act, srcEl) {
     _botsSwitchToChat();
     _botsMarkCurrent(bot);
     if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);
+    // La conversation est à l'écran : elle est lue. Le re-rendu qui suit fait
+    // disparaître le badge de la carte et met à jour le total du rail (l'écriture
+    // du repère invalide le cache serveur, donc ce fetch voit déjà zéro).
+    await _botsMarkSeen(bot);
+    loadBotsPanel(true);
   } catch (e) {
     if (typeof showToast === 'function') showToast(t('bots_action_failed') + ': ' + String(e && e.message || e));
   } finally {
