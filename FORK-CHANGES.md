@@ -277,6 +277,90 @@ bloc — il reste sur la date seule de l'amont. Étendre côté agent serait un 
 
 ---
 
+## E — correction des écarts de fond (06/09/2026)
+
+Suite de `docs/fork/PLAN-ecarts-de-fond.md`, exécutée avec les décisions de Ludo du 06/09/2026
+(D1 détection seule, D2 panneau transverse, D3 spike C1, D4 redémarrage conditionné, D5 les 18
+gateways restent permanents). Quatre des huit écarts se sont réglés **hors code** — c'est le
+résultat, pas un raccourci.
+
+### E1a — canaux inter-bots : détecter, pas bloquer
+
+| Fichier | Changement | Couplage amont |
+| :-- | :-- | :-- |
+| `api/bots_hierarchy.json` | clé `channels` : les 26 arêtes bot-à-bot de la spéc du vault (les 30 canaux annoncés incluent 4 canaux Ludo↔bot, hors `message_agent`), plus `wildcard_senders` pour Merlin (règle assouplie le 05/09). Lue bidirectionnellement, et la carte se vérifie elle-même. | aucun (données) |
+| `api/bot_channels.py` (nouveau, 100 % fork) | `is_allowed` (`True`/`False`/`None`), `classify_relay`, `audit_relays`, `map_inconsistencies`, `GET /api/bot-channels/audit`. | `api.bot_mesh` (fork), `api.bots_overview._operator_hierarchy_path` (fork) |
+| `api/bot_mesh.py` | chaque tour `relay_out` porte `channel_ok` / `channel_target`. Sans carte : `None`, le fil s'affiche comme avant. | — |
+| `static/bots_panel.js` / `.css` | pastille « hors spec » sur la carte de relais, bouton « Canaux » + rendu de l'audit. | — |
+
+**Détection seule, par décision.** L'agent (`tools/bot_mode_dm.py`) valide la cible contre le
+roster **complet** et présente les 17 autres bots comme « teammates » : rien n'empêche un envoi
+hors spec, et ce fork ne l'empêche pas non plus. Un test (`test_audit_is_read_only`) verrouille
+cette propriété — le jour où ça deviendra un garde-fou, ce sera une décision, pas un effet de bord.
+
+**Un couple hors carte donne `None`, jamais « hors spec »** : accuser un profil simplement
+inconnu (créé après la spéc, cible sur une machine pair) discréditerait tous les autres verdicts.
+
+**Coût assumé** : l'audit scanne les Bot Chats, bien plus cher que les 8 lignes que lit le poll
+de 15 s. D'où une route à la demande, pas un compteur temps réel.
+
+### E3 — badge « non lu » par bot
+
+| Fichier | Changement |
+| :-- | :-- |
+| `api/bot_seen.py` (nouveau, 100 % fork) | store `<HERMES_HOME>/webui/bot_seen.json` (même patron que `bot_customization.json` : écriture atomique, lecture qui n'échoue jamais), `mark_seen`, `unread_for`, `baseline_unseen_profiles`, `POST /api/bots/seen`. |
+| `api/bots_overview.py` | `_bot_chat_stats_on_connection` remplace `_last_message_preview_on_connection` : même connexion `state.db`, un `COUNT(*)` de plus. Chaque bot porte `bot_chat_messages` + `unread` ; `counts.unread` pour le rail. |
+| `api/routes.py` | +4 lignes : aiguillage de `POST /api/bots/seen` et `GET /api/bot-channels/audit`. |
+| `static/bots_panel.js` / `.css` / `i18n_fork.js` | badge sur la carte, badge sur le bouton Bots du rail (injecté en JS — zéro ligne dans `index.html`), poll de 60 s **quand le panneau est masqué**, marquage lu à l'ouverture. |
+
+**Repère côté serveur, pas `localStorage`** : WebUI sert de porte d'entrée depuis le téléphone
+comme depuis le poste ; un badge par navigateur rendrait « non lus » des messages déjà lus
+ailleurs, et un compteur qui ment selon l'appareil cesse d'être consulté.
+
+**Démarrage silencieux** : au premier passage, la ligne de base est posée au compte courant.
+Sans ça, la première ouverture afficherait 18 badges portant tout l'historique.
+
+**Unité** : le nombre de lignes de la Bot Chat dans le `state.db` du bot — le même compteur que
+`resync_bot_chat_if_stale`, donc juste même quand un message arrive par le relais ou un cron.
+
+### E2 / E4 / E5 / E7 — réglés hors du code de l'application
+
+* **E2 (cloisonnement Pro/Perso)** — campagne menée : sessions et projets étaient déjà scopés par
+  l'amont ; le **workspace** ne l'était pas (les 18 profils partageaient `/home/atx/workspace`,
+  `guenievre` comprise). Le dossier était vide : rien n'avait fuité. Corrigé **côté exploitation**
+  — l'amont résout déjà `last_workspace.txt` par profil, chaque bot a reçu son dossier.
+  `tests/test_profile_isolation.py` verrouille ce contrat amont : s'il redevenait global, les 18
+  bots repartageraient un workspace en silence. Le panneau Bots reste transverse (décision D2),
+  et un test l'acte pour qu'un futur durcissement ne le « corrige » pas par zèle.
+* **E4 (doublon `default`)** — cause trouvée : `~/.hermes/profiles/default/` ne contenait que des
+  copies du script de relais déployées le 04/09 ; ce n'était pas un profil. Le job cron résout
+  `<HERMES_HOME>/cron/../scripts`, donc le home de base — le dossier était vestigial. Déplacé en
+  `~/.hermes/retired/`. Le doublon disparaît **partout** (sélecteur de profil et panneau Agent
+  profiles compris), à coût de code nul. Le dédoublonnage du panneau Bots reste en place comme
+  filet.
+* **E5 (heure hors WebUI)** — la règle « tu n'as aucune horloge » existait déjà dans les 17
+  `SOUL.md`. Elle **contredisait** le bloc d'heure que le fork injecte dans les tours WebUI : un
+  bot serait allé chercher `date` pour une heure qu'on venait de lui donner. Une exception
+  explicite a été ajoutée aux 17 fiches (idempotent, sauvegardes `.bak-20260906-clock`). Aucun
+  patch de l'agent : celui-ci ferait payer un cache de préfixe cassé à 18 gateways.
+* **E7 (dérive de code)** — l'agent s'est mis à jour **6 fois** le 06/09/2026 ; la dérive est le
+  régime permanent, pas un incident. Trois scripts côté `.178` (hors dépôt) :
+  `verify_agent_patches.py` (vérifie l'**effet** des patches locaux, pas le code retour de
+  `git apply`, et alerte sur Telegram), `agent_update_impact.py` (redémarrage du WebUI **seulement**
+  si la mise à jour touche du code qu'il importe — décision D4), et le nettoyage du marqueur
+  `fleet_restart_pending` périmé qui produisait de fausses alertes. Validé de bout en bout sur une
+  vraie mise à jour.
+
+### E6 / D3 — spike « exécution concurrente »
+
+`tests/test_concurrent_bot_isolation_c1.py` + `docs/fork/SPIKE-C1-execution-concurrente.md`.
+Mesure sur agent réel : l'override de home est un **ContextVar** (l'amont refuse explicitement
+`os.environ`), `api.profiles._tls` est un thread-local, et les garde-fous « busy » sont par
+session. **Deux bots peuvent déjà tourner en même temps sans se mélanger** — le runner du palier
+C1 n'est pas ce qui manque. Ce qui manque est l'affichage (C2).
+
+---
+
 ## Surface de conflit avec l'amont
 
 `master` est un **miroir pur** de `nesquena/hermes-webui` (aucun commit fork dessus). Tout le
@@ -287,11 +371,12 @@ illisible et ce fichier perd son sens.
 ### Fichiers 100 % fork (ne peuvent jamais entrer en conflit)
 
 `api/bot_mesh.py`, `api/bots_overview.py`, `api/bot_customization.py`, `api/bots_hierarchy.json`,
-`api/fork_time_context.py`,
+`api/fork_time_context.py`, `api/bot_seen.py`, `api/bot_channels.py`,
 `static/bots_panel.js`, `static/bots_panel.css`, `static/i18n_fork.js`, et tous les
 `tests/test_bot*.py` / `tests/test_bots*.py` / `test_gateway_multiprofile_b1.py` /
 `test_relay_inbound_message_card.py` / `test_message_agent_tool_card.py` /
-`test_root_profile_display_name.py` / `test_fork_upstream_contract.py` / `test_fork_time_context.py`.
+`test_root_profile_display_name.py` / `test_fork_upstream_contract.py` / `test_fork_time_context.py` /
+`test_profile_isolation.py` / `test_concurrent_bot_isolation_c1.py`.
 
 ### Extraction (05/09/2026) — pourquoi ces trois fichiers existent
 
