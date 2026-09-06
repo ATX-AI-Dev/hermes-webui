@@ -401,23 +401,55 @@ function _botsMarkCurrent(bot) {
     row.classList.toggle('is-current', row.dataset.bot === bot);
   });
 }
+// Switch profile the way upstream's session list does when the user clicks a
+// session belonging to another profile: behind `_profileSwitchOpeningExistingSession`.
+// That flag is switchToProfile's contract for "I will load an existing session
+// the moment you return" — without it, a switch away from a conversation that
+// HAS messages takes the `sessionInProgress` branch, which mints a blank
+// session for the target profile, awaits its workspace tree, re-renders the
+// session list, expands the sidebar and toasts "new conversation started" —
+// all of it thrown away microseconds later by our own loadSession(). The
+// server side was never the slow part (continue 33-100 ms, switch 5-18 ms).
+// See _ensureSidebarSessionProfile() in sessions.js for the same pattern.
+async function _botsSwitchProfileForExistingSession(bot) {
+  if (typeof switchToProfile !== 'function') return;
+  const flagExists = typeof _profileSwitchOpeningExistingSession !== 'undefined';
+  if (flagExists) _profileSwitchOpeningExistingSession = true;
+  try {
+    await switchToProfile(bot);
+  } finally {
+    if (flagExists) _profileSwitchOpeningExistingSession = false;
+  }
+}
+
 async function _botsOpenConversation(bot, act, srcEl) {
   if (!bot || _botsOpening) return;
   _botsOpening = true;
   if (srcEl) srcEl.setAttribute('aria-busy', 'true');
   try {
     if (act === 'open') {
+      // No Bot Chat to import: a fresh conversation IS the destination here,
+      // so this path deliberately keeps switchToProfile's default branch.
       if (typeof switchToProfile === 'function') await switchToProfile(bot);
       _botsSwitchToChat();
       _botsMarkCurrent(bot);
       return;
     }
-    const r = await api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
+    // The import and the profile switch don't depend on each other — the
+    // import resolves its own profile server-side (api/bot_mesh.py passes
+    // `profile=` explicitly all the way down) rather than reading the profile
+    // cookie the switch sets. So start both and wait once instead of twice.
+    // Behaviour note: the profile switch now also happens when the import
+    // fails (the card only offers "continue" when has_bot_chat is true, so
+    // that means the Bot Chat vanished under us). The user lands on the bot
+    // they asked for, with the error toast, instead of staying put.
+    const importing = api('/api/bot-chat/continue', { method: 'POST', body: JSON.stringify({ profile: bot }), timeoutToast: false });
+    const switching = _botsSwitchProfileForExistingSession(bot);
+    const [r] = await Promise.all([importing, switching]);
     if (!r || r.ok === false) {
       if (typeof showToast === 'function') showToast((r && r.error) || t('bots_action_failed'));
       return;
     }
-    if (typeof switchToProfile === 'function') await switchToProfile(bot);
     _botsSwitchToChat();
     _botsMarkCurrent(bot);
     if (typeof loadSession === 'function' && r.session_id) await loadSession(r.session_id);

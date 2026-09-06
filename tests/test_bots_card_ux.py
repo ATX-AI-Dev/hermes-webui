@@ -113,3 +113,44 @@ def test_folded_areas_are_actually_hidden_by_the_hidden_attribute():
     rule = next((l for l in css.splitlines() if "[hidden]" in l and "display: none" in l), "")
     for cls in (".bots-details[hidden]", ".bots-custom[hidden]", ".bots-chat[hidden]"):
         assert cls in rule, f"{cls} must be in the shared [hidden] rule, got: {rule!r}"
+
+
+def test_continue_does_not_mint_a_throwaway_session():
+    """Opening a bot's Bot Chat must not create a blank session on the way.
+
+    switchToProfile's `sessionInProgress` branch mints a new session, awaits its
+    workspace tree, re-renders the session list and toasts "new conversation
+    started" — all discarded by the loadSession() that follows. Upstream's own
+    session list avoids it with `_profileSwitchOpeningExistingSession`; the Bots
+    panel has to hold the same contract (reported 2026-09-06: switching from one
+    bot to another took seconds and toasted a conversation the user never saw).
+    """
+    js = _panel_js()
+    assert "async function _botsSwitchProfileForExistingSession(bot)" in js
+    assert "_profileSwitchOpeningExistingSession = true;" in js
+    assert "_profileSwitchOpeningExistingSession = false;" in js
+    # the flag must be cleared even when the switch throws
+    helper = js.split("async function _botsSwitchProfileForExistingSession(bot)")[1]
+    helper = helper.split("async function _botsOpenConversation")[0]
+    assert "finally" in helper, "the flag must be reset in a finally block"
+    # and the 'open' fallback (no Bot Chat to load) must keep the default branch
+    assert "if (typeof switchToProfile === 'function') await switchToProfile(bot);" in js
+
+
+def test_continue_and_profile_switch_run_in_parallel():
+    """They have no dependency on each other — api/bot_mesh.py resolves the
+    profile explicitly rather than through the cookie the switch sets."""
+    js = _panel_js()
+    assert "const importing = api('/api/bot-chat/continue'" in js
+    assert "const switching = _botsSwitchProfileForExistingSession(bot);" in js
+    assert "await Promise.all([importing, switching]);" in js
+
+
+def test_bot_mesh_continue_resolves_the_profile_explicitly():
+    """The parallelism above is only safe while this stays true."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "api" / "bot_mesh.py").read_text(encoding="utf-8")
+    body = src.split("def continue_bot_chat(profile: str) -> dict:")[1].split("\ndef ")[0]
+    assert "find_bot_chat_session(profile)" in body
+    assert "get_cli_session_messages(sid, profile=profile)" in body
+    assert "profile=profile," in body
