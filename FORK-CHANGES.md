@@ -284,7 +284,7 @@ Suite de `docs/fork/PLAN-ecarts-de-fond.md`, exécutée avec les décisions de L
 gateways restent permanents). Quatre des huit écarts se sont réglés **hors code** — c'est le
 résultat, pas un raccourci.
 
-### E1a — canaux inter-bots : détecter, pas bloquer
+### E1a / E1b — canaux inter-bots : mesurer, puis faire respecter
 
 | Fichier | Changement | Couplage amont |
 | :-- | :-- | :-- |
@@ -293,10 +293,21 @@ résultat, pas un raccourci.
 | `api/bot_mesh.py` | chaque tour `relay_out` porte `channel_ok` / `channel_target`. Sans carte : `None`, le fil s'affiche comme avant. | — |
 | `static/bots_panel.js` / `.css` | pastille « hors spec » sur la carte de relais, bouton « Canaux » + rendu de l'audit. | — |
 
-**Détection seule, par décision.** L'agent (`tools/bot_mode_dm.py`) valide la cible contre le
-roster **complet** et présente les 17 autres bots comme « teammates » : rien n'empêche un envoi
-hors spec, et ce fork ne l'empêche pas non plus. Un test (`test_audit_is_read_only`) verrouille
-cette propriété — le jour où ça deviendra un garde-fou, ce sera une décision, pas un effet de bord.
+**Détection d'abord, application ensuite — et l'application n'est pas dans ce dépôt.**
+Le fork mesure ; c'est un patch local de l'agent (`~/.hermes/local-patches/kingdom-channels.patch`,
+rejoué après chaque `hermes update`, vérifié par `verify_agent_patches.py`) qui refuse un envoi
+hors spec, en lisant **la même carte** que ce dépôt publie. La mesure a précédé la décision :
+8 échanges hors spec sur 133 relais, tous vers le Pilote, d'où le choix de Ludo (06/09/2026) de
+faire respecter la hiérarchie plutôt que de l'assouplir. `test_audit_is_read_only` continue de
+verrouiller le fait que le **module du fork**, lui, ne bloque toujours rien : c'est ce qui permet
+de mesurer ce que l'application laisse passer.
+
+Côté agent, l'application filtre aussi la liste de « teammates » présentée au modèle : un bot qui
+ne voit pas une cible n'essaie pas de l'atteindre. Le refus, lui, nomme explicitement les
+interlocuteurs autorisés et interdit la relance — un bot à qui on refuse une action sans lui
+donner la sortie boucle (leçon de la consigne Telegram impossible du 06/09). **Fail-open** :
+carte illisible ou couple inconnu ⇒ on laisse passer, une carte absente ne doit jamais couper la
+communication de tout le royaume.
 
 **Un couple hors carte donne `None`, jamais « hors spec »** : accuser un profil simplement
 inconnu (créé après la spéc, cible sur une machine pair) discréditerait tous les autres verdicts.

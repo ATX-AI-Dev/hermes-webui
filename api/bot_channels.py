@@ -7,18 +7,26 @@ Ludo a spécifié le 03/09/2026 quels bots ont le droit de se parler
 dont 4 seules passerelles vers la branche Perso, et aucun lien direct
 Lancelot ↔ Guenièvre — la coordination Pro/Perso passe par le Pilote.
 
-**Rien n'applique cette règle.** Elle vit dans les prompts et le vault. Côté
-agent, ``tools/bot_mode_dm.py`` valide la cible contre le roster COMPLET
-(``resolved = _resolve_local_name(raw_target, roster)``) et présente au modèle
-tous les autres bots comme des « teammates » : un bot Perso peut écrire à un bot
-Pro, rien ne le refuse et rien ne le signale.
+**Ce module détecte ; il n'empêche rien.** L'application, elle, vit ailleurs :
+dans un patch local de l'agent (``~/.hermes/local-patches/kingdom-channels.patch``,
+rejoué après chaque ``hermes update``), posé le 06/09/2026 après que la mesure
+ci-dessous a tranché. Les deux lisent **la même carte**, ce fichier-ci.
 
-Ce module **détecte**, il n'empêche pas. C'est la décision de Ludo du
-06/09/2026 (écart E1 de ``docs/fork/PLAN-ecarts-de-fond.md``, option A) : mesurer
-d'abord ce que les bots font réellement, verrouiller ensuite si la mesure le
-justifie. Une allowlist posée sans observation casserait des chaînes qui
-fonctionnent — la remontée du changelog `Venec → Lancelot → Roi Arthur`, ou les
-contacts directs de Merlin autorisés depuis le 05/09.
+Chronologie, parce qu'elle explique la forme du code : l'amont
+(``tools/bot_mode_dm.py``) valide la cible contre le roster COMPLET
+(``resolved = _resolve_local_name(raw_target, roster)``) et présente au modèle
+tous les autres bots comme des « teammates ». Ludo a d'abord demandé de mesurer
+(option A) plutôt que de verrouiller à l'aveugle : une allowlist posée sans
+observation aurait pu casser des chaînes qui marchent — la remontée du changelog
+`Venec → Lancelot → Roi Arthur`, ou les contacts directs de Merlin autorisés
+depuis le 05/09. **La mesure a donné 8 échanges hors spec sur 133 relais**, tous
+sur un seul axe (des bots écrivant directement au Pilote), et Ludo a décidé de
+faire respecter la hiérarchie.
+
+Ce module reste **strictement en lecture** : l'audit ne bloque rien, n'écrit rien
+et ne lance aucun processus (test ``test_audit_is_read_only``). C'est ce qui
+permet de continuer à mesurer — y compris ce que l'application laisse encore
+passer, puisqu'elle est fail-open sur les couples inconnus.
 
 LECTURE BIDIRECTIONNELLE
 ------------------------

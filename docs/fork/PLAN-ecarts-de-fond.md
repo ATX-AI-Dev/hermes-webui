@@ -313,7 +313,7 @@ Décisions de Ludo : **D1** détection seule · **D2** panneau Bots transverse �
 | Écart | État | Où c'est |
 | :-- | :-- | :-- |
 | E1a — détection des canaux | ✅ livré | `api/bot_channels.py`, carte dans `bots_hierarchy.json`, audit à la demande dans le panneau |
-| E1b — application (allowlist agent) | ⏸ volontairement non fait | à rouvrir après une semaine de mesure |
+| E1b — application (allowlist agent) | ✅ livré le 06/09/2026 | patch local `kingdom-channels.patch` ; refus vérifié en vrai sur `pere-blaise → roi-arthur`, arête légitime `pere-blaise → lancelot` toujours `sent` |
 | E2 — étanchéité Pro/Perso | ✅ campagne faite, une fuite trouvée et fermée | workspace par bot sur `.178` + `tests/test_profile_isolation.py` |
 | E3 — badge non lu | ✅ livré | `api/bot_seen.py`, badge carte + rail |
 | E4 — doublon `default` | ✅ fermé à la source, zéro code | dossier vestigial déplacé en `~/.hermes/retired/` — vérifié : 18 profils, aucun doublon |
@@ -325,8 +325,7 @@ Décisions de Ludo : **D1** détection seule · **D2** panneau Bots transverse �
 
 **Ce qui reste ouvert, et pourquoi :**
 
-1. **E1b** — verrouiller les canaux côté agent. En attente d'une semaine de mesure (D1).
-2. **C2** — l'affichage multi-bots, seul vrai reste-à-faire du palier C. Trois formes possibles,
+1. **C2** — l'affichage multi-bots, seul vrai reste-à-faire du palier C. Trois formes possibles,
    à trancher avec Ludo : voir §6 du rapport de spike.
 3. **Vault** — plusieurs notes sont à mettre à jour (workspace par bot, dossier `default`
    retiré, scripts d'exploitation, verdict du spike). À faire **avec** Ludo, pas à sa place.
