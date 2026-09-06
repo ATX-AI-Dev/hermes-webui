@@ -936,6 +936,16 @@ def _webui_ephemeral_system_prompt(
     if surface_prompt:
         parts.append(surface_prompt)
     parts.append(_WEBUI_PROGRESS_PROMPT)
+    # Fork: upstream injects the date only (byte-stable for prompt caching) and
+    # tells the model to query a tool for the exact time; weak models skip that
+    # call and invent an hour. api/fork_time_context.py states it instead.
+    try:
+        from api.fork_time_context import webui_time_context_prompt
+        time_prompt = webui_time_context_prompt()
+    except Exception:
+        time_prompt = ""
+    if time_prompt:
+        parts.append(time_prompt)
     delivery_prompt = _webui_delivery_context_prompt(config_data)
     if delivery_prompt:
         parts.append(delivery_prompt)

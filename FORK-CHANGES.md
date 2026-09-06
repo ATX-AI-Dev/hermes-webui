@@ -246,6 +246,37 @@ profiles). Corriger à la source déplacerait ces deux surfaces — à traiter s
 
 ---
 
+## Heure exacte dans le prompt WebUI
+
+**Objectif** : qu'un bot cesse d'inventer l'heure. Constat du 06/09/2026 : Roi-arthur annonce
+« Heures d'envoi (UTC) : 06/09/2026 ~15:22 » alors que l'horloge de `.178` lit 10:22 UTC
+(12:22 CEST). Les horloges sont justes et le rendu WebUI n'est pas en cause.
+
+**Cause** : l'amont Hermes (`agent/system_prompt.py`, `_timestamp_line()`) n'injecte que la
+**date**, délibérément — la ligne est rendue byte-stable pour la journée afin que le préfixe de
+prompt reste caché — et renvoie le modèle vers un outil pour l'heure exacte
+(« query tools for exact time »). Les modèles gratuits sur lesquels tournent les bots ne font
+jamais cet appel : ils estiment une heure et l'affirment, parfois en étiquetant « UTC » une
+heure locale.
+
+| Fichier | Changement | Couplage amont |
+| :-- | :-- | :-- |
+| `api/fork_time_context.py` (nouveau, 100 % fork) | `webui_time_context_prompt(now=None)` : bloc « Current time (authoritative…) » avec heure locale (abréviation + décalage) **et** UTC, plus la consigne de s'en servir, de ne jamais estimer une heure et de ne jamais rebaptiser en UTC une heure locale. Sortie ASCII pure et format numérique (`%A`/`%B`/`%Z` sont localisés — `turn_recovery` de l'agent dépouille le prompt éphémère de son non-ASCII chez certains fournisseurs). | aucun |
+| `api/streaming.py` | 10 lignes dans `_webui_ephemeral_system_prompt()` : le bloc est ajouté après `_WEBUI_PROGRESS_PROMPT`, import à l'intérieur de la fonction, `try/except` — une panne de l'horloge ne doit pas casser un tour. | fonction amont `_webui_ephemeral_system_prompt` (déjà touchée par l'amont pour la surface/livraison). |
+| `tests/test_fork_time_context.py` (nouveau) | 6 tests : locale + UTC affichés, consignes présentes, sortie ASCII, entrée UTC, suivi de l'horloge serveur, présence effective dans le prompt éphémère (les blocs amont restant intacts). | — |
+
+**Coût assumé** : le prompt éphémère est injecté à l'appel API (jamais persisté), mais il est
+**en tête** de la requête ; une précision à la minute fait donc tomber le cache de préfixe entre
+deux tours espacés de plus d'une minute. Arbitrage explicite retenu avec Ludo : une heure fausse
+affirmée avec aplomb coûte plus cher qu'un cache manqué. Sans effet sur les modèles gratuits
+(OpenRouter), facturable sur Vertex/Anthropic si l'usage y bascule.
+
+**Portée** : les tours pilotés depuis WebUI (dont le manager qu'on relance via « Continuer »).
+Un bot qui répond à un `message_agent` **hors** WebUI tourne sous la passerelle et ne voit pas ce
+bloc — il reste sur la date seule de l'amont. Étendre côté agent serait un patch amont, non fait.
+
+---
+
 ## Surface de conflit avec l'amont
 
 `master` est un **miroir pur** de `nesquena/hermes-webui` (aucun commit fork dessus). Tout le
@@ -256,10 +287,11 @@ illisible et ce fichier perd son sens.
 ### Fichiers 100 % fork (ne peuvent jamais entrer en conflit)
 
 `api/bot_mesh.py`, `api/bots_overview.py`, `api/bot_customization.py`, `api/bots_hierarchy.json`,
+`api/fork_time_context.py`,
 `static/bots_panel.js`, `static/bots_panel.css`, `static/i18n_fork.js`, et tous les
 `tests/test_bot*.py` / `tests/test_bots*.py` / `test_gateway_multiprofile_b1.py` /
 `test_relay_inbound_message_card.py` / `test_message_agent_tool_card.py` /
-`test_root_profile_display_name.py` / `test_fork_upstream_contract.py`.
+`test_root_profile_display_name.py` / `test_fork_upstream_contract.py` / `test_fork_time_context.py`.
 
 ### Extraction (05/09/2026) — pourquoi ces trois fichiers existent
 
@@ -290,7 +322,7 @@ Ordre de chargement (dans `static/index.html`, et à répliquer dans `static/sw.
 | :-- | --: | :-- |
 | `api/routes.py` | ~190 | B1 modifie l'**intérieur** de fonctions amont (`_gateway_status_payload`, `_run_gateway_lifecycle_command`, `_handle_gateway_lifecycle`) ; le reste est l'aiguillage des routes du fork. |
 | `static/ui.js` | ~100 | Rendu des relais et des cartes d'outil **entrelacé** avec le code amont (`_toolActionKind`, tables de verbes, mappes d'icônes). Extraire les ~55 lignes autonomes laisserait quand même ~45 lignes entrelacées : un rebase devrait ouvrir le fichier de toute façon. Non fait délibérément. |
-| `api/streaming.py` | ~45 | Bail d'exclusivité de session, à l'intérieur de la boucle de streaming amont. |
+| `api/streaming.py` | ~55 | Bail d'exclusivité de session, à l'intérieur de la boucle de streaming amont ; + 10 lignes d'appel du bloc d'heure dans `_webui_ephemeral_system_prompt`. |
 | `api/profiles.py` | ~36 | `list_profiles_api` devient un wrapper autour de `_list_profiles_rows`. |
 | `static/index.html` | ~18 | Chargement des 3 assets fork, bouton Bots du rail (×2), panneau `#panelBots`, onglet Trace. |
 | `static/workspace.js` | ~17 | Branche `trace` dans `switchWorkspacePanelTab` (fonction amont). |
