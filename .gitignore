@@ -53,6 +53,10 @@ docs/*
 !docs/rfcs/**
 !docs/architecture/
 !docs/architecture/**
+# Fork ATX-AI-Dev : documents du chantier « bots Hermes » (voir docs/fork/README.md).
+# Sans ces deux lignes, `docs/*` les ignorerait — ils vivaient à la racine avant le 06/09/2026.
+!docs/fork/
+!docs/fork/**
 
 # Local-only AI assistant context — never committed even under docs/.
 docs/AGENTS.md

@@ -1,0 +1,289 @@
+<title>Conversation bot Hermes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ground:#f3f2ee; --shell:#e9e7e0; --surface:#ffffff; --raised:#faf9f5;
+    --border:#e0ddd4; --border-soft:#ebe8e0; --line:#d9d5ca;
+    --text:#22242b; --muted:#5f6374; --faint:#8b8fa0;
+    --accent:#a9781f; --accent-bg:rgba(169,120,31,.10);
+    --ok:#2f8f5b; --ok-bg:rgba(47,143,91,.12);
+    --wait:#b47a1c; --wait-bg:rgba(180,122,28,.13);
+    --relay:#5b57a8; --relay-bg:rgba(91,87,168,.09); --relay-edge:#5b57a8;
+    --think-bg:rgba(169,120,31,.06);
+    --font-ui:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+    --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --ground:#131419; --shell:#0f1015; --surface:#1b1d24; --raised:#22242e;
+    --border:#31353f; --border-soft:#262a33; --line:#3a3e49;
+    --text:#e7e8ee; --muted:#969aab; --faint:#666b7c;
+    --accent:#d8a244; --accent-bg:rgba(216,162,68,.13);
+    --ok:#58bb83; --ok-bg:rgba(88,187,131,.14);
+    --wait:#d99a4a; --wait-bg:rgba(217,154,74,.15);
+    --relay:#9a92e0; --relay-bg:rgba(154,146,224,.12); --relay-edge:#6f68b8;
+    --think-bg:rgba(216,162,68,.08);
+  }}
+  :root[data-theme="dark"]{
+    --ground:#131419; --shell:#0f1015; --surface:#1b1d24; --raised:#22242e;
+    --border:#31353f; --border-soft:#262a33; --line:#3a3e49;
+    --text:#e7e8ee; --muted:#969aab; --faint:#666b7c;
+    --accent:#d8a244; --accent-bg:rgba(216,162,68,.13);
+    --ok:#58bb83; --ok-bg:rgba(88,187,131,.14);
+    --wait:#d99a4a; --wait-bg:rgba(217,154,74,.15);
+    --relay:#9a92e0; --relay-bg:rgba(154,146,224,.12); --relay-edge:#6f68b8;
+    --think-bg:rgba(216,162,68,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{margin:0;font-weight:600}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+  .mono{font-family:var(--font-mono)}
+
+  .app{display:grid;grid-template-columns:52px 250px 1fr;min-height:100vh;max-width:1180px;margin:0 auto;background:var(--surface);border-inline:1px solid var(--border)}
+  @media(max-width:820px){.app{grid-template-columns:52px 1fr}.sb{display:none}}
+  @media(max-width:560px){.app{grid-template-columns:1fr}.rail{display:none}}
+
+  .rail{background:var(--shell);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0}
+  .rail .brand{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#1b1200;display:grid;place-items:center;font-weight:600;font-size:15px;margin-bottom:10px}
+  .rail a{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--faint);text-decoration:none;font-size:17px}
+  .rail a.on{background:var(--accent-bg);color:var(--accent)}
+  .rail a:hover:not(.on){color:var(--muted);background:var(--border-soft)}
+
+  .sb{border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface)}
+  .sb .sbhead{padding:14px 14px 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+  .sb .grp{padding:10px 10px 4px 14px;font-size:11px;color:var(--faint)}
+  .sess{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 14px;font-size:13px;color:var(--muted);border-left:2px solid transparent}
+  .sess:hover{background:var(--border-soft)}
+  .sess.on{background:var(--accent-bg);border-left-color:var(--accent);color:var(--text)}
+  .sess .t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sess .b{font-family:var(--font-mono);font-size:9.5px;padding:1px 5px;border-radius:4px;background:var(--border-soft);color:var(--faint);margin-right:6px}
+  .sess .b.cli{background:var(--accent-bg);color:var(--accent)}
+  .sess .b.tg{background:var(--relay-bg);color:var(--relay)}
+
+  .chat{display:flex;flex-direction:column;min-width:0}
+  .cbar{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border-soft)}
+  .cbar .who{display:flex;align-items:center;gap:9px}
+  .cbar .av{width:22px;height:22px;border-radius:6px;background:var(--relay-bg);color:var(--relay);display:grid;place-items:center;font-family:var(--font-mono);font-weight:500;font-size:11px}
+  .cbar .nm{font-family:var(--font-mono);font-weight:500;font-size:13px}
+  .cbar .rl{font-size:12px;color:var(--muted)}
+  .cbar .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}
+  .cbar .spacer{margin-left:auto}
+  .cbar .ico{font-size:15px;color:var(--faint);padding:4px}
+
+  .scroll{flex:1;overflow-y:auto;padding:22px 20px 8px}
+  .thread{max-width:660px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+
+  .turn{display:flex;flex-direction:column;gap:8px}
+  .turn .lbl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--faint)}
+  .turn .lbl .nm{font-family:var(--font-mono);color:var(--muted)}
+  .turn .lbl .ts{margin-left:auto;font-family:var(--font-mono);font-size:11px}
+  .av2{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-family:var(--font-mono);font-weight:500}
+  .av2.bot{background:var(--relay-bg);color:var(--relay)}
+  .av2.you{background:var(--accent-bg);color:var(--accent)}
+  .msg{font-size:14px}
+  .msg.user{background:var(--raised);border:1px solid var(--border-soft);border-radius:10px;padding:11px 13px}
+  .msg p{margin:0 0 8px}.msg p:last-child{margin:0}
+
+  .think{border:1px solid var(--border-soft);border-radius:9px;background:var(--think-bg);font-size:12.5px}
+  .think summary{list-style:none;cursor:pointer;padding:7px 11px;color:var(--accent);display:flex;align-items:center;gap:7px}
+  .think summary::-webkit-details-marker{display:none}
+  .think summary .cv{margin-left:auto;color:var(--faint);transition:transform .15s}
+  .think[open] summary .cv{transform:rotate(90deg)}
+  .think .tb{padding:0 11px 10px 11px;color:var(--muted);line-height:1.6}
+
+  /* inter-bot relay card */
+  .relay{border:1px solid var(--line);border-left:2px solid var(--relay-edge);border-radius:0 9px 9px 0;background:var(--surface);overflow:hidden}
+  .relay>.rh{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;font-size:13px}
+  .relay>.rh:hover{background:var(--relay-bg)}
+  .relay .ri{color:var(--relay);font-size:14px;flex:none}
+  .relay .rn{font-family:var(--font-mono);font-size:12px}
+  .relay .arw{color:var(--faint);font-family:var(--font-mono)}
+  .relay .st{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;display:flex;align-items:center;gap:5px}
+  .relay .st.wait{background:var(--wait-bg);color:var(--wait)}
+  .relay .st.done{background:var(--ok-bg);color:var(--ok)}
+  .relay .st .p{width:5px;height:5px;border-radius:50%;background:currentColor}
+  .relay .st.wait .p{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .relay .ts{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
+  .relay .cv{color:var(--faint);transition:transform .15s;flex:none}
+  .relay.open .cv{transform:rotate(90deg)}
+  .relay .rb{border-top:1px solid var(--border-soft);padding:11px 12px;display:none;flex-direction:column;gap:11px}
+  .relay.open .rb{display:flex}
+  .seg .sl{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .seg .sc{font-size:13px;background:var(--raised);border:1px solid var(--border-soft);border-radius:8px;padding:9px 11px}
+  .seg .sc.pend{color:var(--muted);display:flex;gap:9px;align-items:flex-start}
+  .seg .sc.pend .ico{color:var(--wait);flex:none}
+  .hint{font-size:11.5px;color:var(--faint);line-height:1.5}
+
+  .composer{border-top:1px solid var(--border);padding:12px 20px 14px;background:var(--surface)}
+  .cinput{max-width:660px;margin:0 auto;border:1px solid var(--line);border-radius:12px;background:var(--raised);padding:10px 12px}
+  .cinput .ph{color:var(--faint);font-size:13.5px}
+  .cft{max-width:660px;margin:8px auto 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fchip{font-size:11.5px;font-family:var(--font-mono);padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);display:flex;align-items:center;gap:6px}
+  .fchip .d{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .ring{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);font-family:var(--font-mono)}
+  .ring svg{transform:rotate(-90deg)}
+  .send{font-size:12.5px;padding:6px 14px;border-radius:8px;border:1px solid transparent;background:var(--accent);color:#1b1200;font-weight:500}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <nav class="rail" aria-label="Navigation">
+    <div class="brand" aria-hidden="true">H</div>
+    <a href="#" title="Chat" aria-label="Chat" class="on" aria-current="page">&#9631;</a>
+    <a href="#" title="Tâches" aria-label="Tâches">&#9202;</a>
+    <a href="#" title="Skills" aria-label="Skills">&#9670;</a>
+    <a href="#" title="Mémoire" aria-label="Mémoire">&#9634;</a>
+    <a href="#" title="Bots" aria-label="Bots">&#9819;</a>
+  </nav>
+
+  <aside class="sb">
+    <div class="sbhead">Sessions</div>
+    <div class="grp">Aujourd'hui</div>
+    <button class="sess on"><span class="t"><span class="b">webui</span>Point infra client Acme</span></button>
+    <button class="sess"><span class="t"><span class="b tg">telegram</span>« fais le point infra »</span></button>
+    <button class="sess"><span class="t"><span class="b">webui</span>Répartition audit sécurité</span></button>
+    <button class="sess"><span class="t"><span class="b cli">cli</span>Revue déploiement .178</span></button>
+    <div class="grp">Hier</div>
+    <button class="sess"><span class="t"><span class="b">webui</span>Consolidation reporting S35</span></button>
+    <button class="sess"><span class="t"><span class="b tg">telegram</span>Alerte lien WAN Acme</span></button>
+  </aside>
+
+  <section class="chat">
+    <div class="cbar">
+      <div class="who">
+        <span class="av" aria-hidden="true">la</span>
+        <span class="nm">lancelot</span>
+        <span class="dot" aria-hidden="true"></span>
+        <span class="rl">Manager Pro — Orchestrateur</span>
+      </div>
+      <span class="spacer"></span>
+      <span class="ico" title="Historique inter-bots" aria-hidden="true">&#8646;</span>
+      <span class="ico" title="Options" aria-hidden="true">&#8943;</span>
+    </div>
+
+    <div class="scroll">
+      <div class="thread">
+
+        <div class="turn">
+          <div class="lbl"><span class="av2 you" aria-hidden="true">V</span><span>Vous</span><span class="ts">14:03</span></div>
+          <div class="msg user"><p>Fais le point sur l'infra du client Acme. Priorité aux alertes réseau, je veux une synthèse actionnable.</p></div>
+        </div>
+
+        <div class="turn">
+          <div class="lbl"><span class="av2 bot" aria-hidden="true">la</span><span class="nm">lancelot</span><span class="ts">14:03</span></div>
+
+          <details class="think">
+            <summary><span aria-hidden="true">&#10022;</span> Raisonnement <span class="cv" aria-hidden="true">&#8250;</span></summary>
+            <div class="tb">Deux volets distincts : les alertes réseau relèvent de Bohorth (supervision infra clients), l'état du socle et du vault relève de Père Blaise. Je délègue les deux en parallèle et je consolide. Je n'exécute rien moi-même.</div>
+          </details>
+
+          <div class="msg"><p>Je répartis&nbsp;: <span class="mono">bohorth</span> sur les alertes réseau, <span class="mono">pere-blaise</span> sur l'état du socle infra. Je consolide dès retour.</p></div>
+
+          <div class="relay open" data-relay>
+            <div class="rh">
+              <span class="ri" aria-hidden="true">&#8644;</span>
+              <span class="rn">lancelot</span><span class="arw">&rarr;</span><span class="rn">bohorth</span>
+              <span class="st wait"><span class="p" aria-hidden="true"></span>en attente de réponse</span>
+              <span class="ts">14:03</span>
+              <span class="cv" aria-hidden="true">&#8250;</span>
+            </div>
+            <div class="rb">
+              <div class="seg">
+                <div class="sl">Message envoyé</div>
+                <div class="sc">Alertes réseau actives sur l'infra Acme&nbsp;? Détail par lien + criticité, focus dernières 24&nbsp;h.</div>
+              </div>
+              <div class="seg">
+                <div class="sl">Réponse</div>
+                <div class="sc pend"><span class="ico" aria-hidden="true">&#9203;</span><span>Accusé de dépôt reçu sur le canal de <span class="mono">bohorth</span>. La réponse n'est pas encore revenue.</span></div>
+              </div>
+              <div class="hint">Le mesh <span class="mono">message_agent</span> est fire-and-forget&nbsp;: la réponse de <span class="mono">bohorth</span> remontera au prochain tour de <span class="mono">lancelot</span>, ou via le cron de rattrapage (≤&nbsp;10&nbsp;min).</div>
+            </div>
+          </div>
+
+          <div class="relay" data-relay>
+            <div class="rh">
+              <span class="ri" aria-hidden="true">&#8644;</span>
+              <span class="rn">lancelot</span><span class="arw">&rarr;</span><span class="rn">pere-blaise</span>
+              <span class="st done"><span class="p" aria-hidden="true"></span>réponse reçue</span>
+              <span class="ts">14:04</span>
+              <span class="cv" aria-hidden="true">&#8250;</span>
+            </div>
+            <div class="rb">
+              <div class="seg">
+                <div class="sl">Message envoyé</div>
+                <div class="sc">État du socle infra Acme&nbsp;: sauvegardes, certificats, espace disque, dérive de conf&nbsp;?</div>
+              </div>
+              <div class="seg">
+                <div class="sl">Réponse de <span class="mono">pere-blaise</span></div>
+                <div class="sc">Socle sain. Sauvegardes OK (dernier point 03:12), certificats &gt; 40&nbsp;j, disque 61&nbsp;%. Aucune dérive de conf depuis le dernier audit.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="turn">
+          <div class="lbl"><span class="av2 bot" aria-hidden="true">la</span><span class="nm">lancelot</span><span class="ts">14:10</span></div>
+
+          <div class="relay open" data-relay>
+            <div class="rh">
+              <span class="ri" aria-hidden="true">&#8644;</span>
+              <span class="rn">bohorth</span><span class="arw">&rarr;</span><span class="rn">lancelot</span>
+              <span class="st done"><span class="p" aria-hidden="true"></span>réponse reçue</span>
+              <span class="ts">14:10 · rattrapée</span>
+              <span class="cv" aria-hidden="true">&#8250;</span>
+            </div>
+            <div class="rb">
+              <div class="seg">
+                <div class="sl">Réponse de <span class="mono">bohorth</span> <span style="color:var(--faint)">— à la demande envoyée à 14:03</span></div>
+                <div class="sc">2 alertes actives&nbsp;: (1) lien WAN principal en flapping depuis 14:02, ~6 coupures/h, bascule secours OK&nbsp;; (2) charge CPU pare-feu à 91&nbsp;% (seuil 80). Pas d'incident client remonté à ce stade.</div>
+              </div>
+              <div class="hint">Reçue au tour suivant de <span class="mono">lancelot</span>, 7&nbsp;min après l'envoi — délai normal du mécanisme fire-and-forget.</div>
+            </div>
+          </div>
+
+          <div class="msg">
+            <p><strong>Synthèse — infra Acme</strong></p>
+            <p><strong>Réseau (à traiter aujourd'hui)</strong>&nbsp;: lien WAN principal en flapping depuis 14:02, secours actif&nbsp;; CPU pare-feu à 91&nbsp;%. Action&nbsp;: ouvrir un ticket opérateur sur le WAN, planifier un redémarrage pare-feu hors heures ouvrées.</p>
+            <p><strong>Socle</strong>&nbsp;: sain, rien à signaler (sauvegardes, certificats, disque, conf).</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="cinput"><span class="ph">Répondre à lancelot…</span></div>
+      <div class="cft">
+        <span class="fchip"><span class="d" aria-hidden="true"></span>lancelot</span>
+        <span class="fchip">longcat-2.0:free</span>
+        <span class="fchip">~/workspace</span>
+        <span class="ring">
+          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2"/><circle cx="9" cy="9" r="7" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="44" stroke-dashoffset="38" stroke-linecap="round"/></svg>
+          12&nbsp;%
+        </span>
+        <button class="send">Envoyer</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+document.querySelectorAll("[data-relay]").forEach(function(card){
+  var head=card.querySelector(".rh");
+  head.setAttribute("role","button");
+  head.setAttribute("tabindex","0");
+  head.setAttribute("aria-expanded",card.classList.contains("open")?"true":"false");
+  function toggle(){
+    var open=card.classList.toggle("open");
+    head.setAttribute("aria-expanded",open?"true":"false");
+  }
+  head.addEventListener("click",toggle);
+  head.addEventListener("keydown",function(e){
+    if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}
+  });
+});
+</script>

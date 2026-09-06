@@ -1,0 +1,406 @@
+<title>Panneau Bots Hermes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ground:#f3f2ee; --shell:#e9e7e0; --surface:#ffffff; --raised:#faf9f5;
+    --border:#e0ddd4; --border-soft:#ebe8e0; --line:#d9d5ca;
+    --text:#22242b; --muted:#5f6374; --faint:#8b8fa0;
+    --accent:#a9781f; --accent-bg:rgba(169,120,31,.10);
+    --ok:#2f8f5b; --ok-bg:rgba(47,143,91,.12);
+    --idle:#8b8fa0; --warn:#b47a1c;
+    --pro:#b96a45; --pro-edge:#b96a45; --pro-bg:rgba(185,106,69,.09);
+    --perso:#5c6cae; --perso-edge:#5c6cae; --perso-bg:rgba(92,108,174,.09);
+    --focus:#a9781f;
+    --font-ui:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+    --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --ground:#131419; --shell:#0f1015; --surface:#1b1d24; --raised:#22242e;
+    --border:#31353f; --border-soft:#262a33; --line:#3a3e49;
+    --text:#e7e8ee; --muted:#969aab; --faint:#666b7c;
+    --accent:#d8a244; --accent-bg:rgba(216,162,68,.13);
+    --ok:#58bb83; --ok-bg:rgba(88,187,131,.14);
+    --idle:#5c6070; --warn:#d99a4a;
+    --pro:#cf8560; --pro-edge:#a5613f; --pro-bg:rgba(207,133,96,.11);
+    --perso:#8a99d4; --perso-edge:#5a68a6; --perso-bg:rgba(138,153,212,.11);
+    --focus:#d8a244;
+  }}
+  :root[data-theme="dark"]{
+    --ground:#131419; --shell:#0f1015; --surface:#1b1d24; --raised:#22242e;
+    --border:#31353f; --border-soft:#262a33; --line:#3a3e49;
+    --text:#e7e8ee; --muted:#969aab; --faint:#666b7c;
+    --accent:#d8a244; --accent-bg:rgba(216,162,68,.13);
+    --ok:#58bb83; --ok-bg:rgba(88,187,131,.14);
+    --idle:#5c6070; --warn:#d99a4a;
+    --pro:#cf8560; --pro-edge:#a5613f; --pro-bg:rgba(207,133,96,.11);
+    --perso:#8a99d4; --perso-edge:#5a68a6; --perso-bg:rgba(138,153,212,.11);
+    --focus:#d8a244;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-ui);
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+  button{font-family:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+  .mono{font-family:var(--font-mono)}
+
+  .app{display:grid;grid-template-columns:52px 234px 1fr;min-height:100vh;max-width:1240px;margin:0 auto;
+    background:var(--surface);border-inline:1px solid var(--border)}
+  @media(max-width:900px){.app{grid-template-columns:52px 1fr}.ctx{display:none}}
+  @media(max-width:640px){.app{grid-template-columns:1fr}.rail{display:none}}
+
+  /* icon rail */
+  .rail{background:var(--shell);border-right:1px solid var(--border);display:flex;flex-direction:column;
+    align-items:center;gap:4px;padding:12px 0}
+  .rail .brand{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#1b1200;
+    display:grid;place-items:center;font-weight:600;font-size:15px;margin-bottom:10px}
+  .rail a{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--faint);
+    text-decoration:none;font-size:17px}
+  .rail a.on{background:var(--accent-bg);color:var(--accent)}
+  .rail a:hover:not(.on){color:var(--muted);background:var(--border-soft)}
+
+  /* context column */
+  .ctx{border-right:1px solid var(--border);padding:16px 14px;display:flex;flex-direction:column;gap:14px;background:var(--surface)}
+  .ctx .eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+  .ctx-card{background:var(--raised);border:1px solid var(--border-soft);border-radius:10px;padding:11px 12px}
+  .ctx-card .k{font-size:12px;color:var(--muted)}
+  .ctx-card .v{font-size:13px;margin-top:2px}
+  .legend{display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:8px}
+  .swatch{width:10px;height:10px;border-radius:3px;flex:none}
+
+  /* main */
+  .main{padding:20px 22px 32px;min-width:0}
+  .head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .head h1{font-size:19px}
+  .chip{font-family:var(--font-mono);font-size:11px;padding:2px 7px;border-radius:5px;
+    background:var(--border-soft);color:var(--muted)}
+  .note{margin:6px 0 18px;font-size:12px;color:var(--faint)}
+  .note b{color:var(--muted);font-weight:500}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
+  @media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
+  .tile{background:var(--raised);border:1px solid var(--border-soft);border-radius:10px;padding:11px 13px}
+  .tile .l{font-size:11.5px;color:var(--muted);letter-spacing:.02em}
+  .tile .n{font-size:21px;font-weight:600;margin-top:3px;font-family:var(--font-mono);
+    display:flex;align-items:baseline;gap:6px}
+  .tile .n small{font-size:12px;font-weight:400;color:var(--faint);font-family:var(--font-ui)}
+  .tile .s{font-size:12px;margin-top:2px;color:var(--muted)}
+  .tile .s.good{color:var(--ok)}
+
+  .layout{display:grid;grid-template-columns:1fr 296px;gap:18px;align-items:start}
+  @media(max-width:1080px){.layout{grid-template-columns:1fr}}
+
+  .tree{display:flex;flex-direction:column;gap:14px}
+  .grouplabel{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    margin:2px 0 -4px;display:flex;align-items:center;gap:8px}
+  .grouplabel .tag{font-family:var(--font-mono);letter-spacing:0;text-transform:none;font-size:10px;
+    padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+
+  .pilote-row,.aside-row{border:1px solid var(--border);border-radius:11px;background:var(--raised)}
+  .aside-row{border-style:dashed}
+
+  .branch{border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--surface)}
+  .branch>.bhead{display:flex;align-items:center;gap:9px;padding:10px 13px;border-bottom:1px solid var(--border-soft);
+    background:var(--raised)}
+  .branch.pro{border-color:color-mix(in srgb,var(--pro-edge) 45%,var(--border))}
+  .branch.pro>.bhead{box-shadow:inset 3px 0 0 var(--pro-edge)}
+  .branch.perso{border-color:color-mix(in srgb,var(--perso-edge) 45%,var(--border))}
+  .branch.perso>.bhead{box-shadow:inset 3px 0 0 var(--perso-edge)}
+  .bhead .mtag{font-size:11px;color:var(--muted);margin-left:auto}
+  .bhead .mtag.pro{color:var(--pro)}
+  .bhead .mtag.perso{color:var(--perso)}
+
+  .row{display:grid;grid-template-columns:14px 148px 1fr auto;gap:10px;align-items:center;
+    width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--border-soft);
+    padding:8px 13px;cursor:pointer;font-size:13px}
+  .row:first-of-type{border-top:0}
+  .row:hover{background:var(--border-soft)}
+  .row.sel{background:var(--accent-bg)}
+  .row.sel .name{color:var(--accent)}
+  .pilote-row .row,.aside-row .row{border-top:0}
+  .row.child{grid-template-columns:14px 132px 1fr auto;padding-left:34px;position:relative}
+  .row.child::before{content:"";position:absolute;left:20px;top:0;bottom:50%;width:9px;
+    border-left:1.5px solid var(--line);border-bottom:1.5px solid var(--line);border-bottom-left-radius:5px}
+
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--idle);flex:none}
+  .dot.up{background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}
+  .name{font-family:var(--font-mono);font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .role{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+  .meta{display:flex;align-items:center;gap:7px;justify-self:end}
+  .pill{font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border-radius:5px;
+    border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .pill.cron{border-color:color-mix(in srgb,var(--accent) 40%,var(--line));color:var(--accent)}
+  .pill.count{border:0;background:var(--border-soft)}
+  .pill.muted2{opacity:.55}
+  .gw{font-size:11px;border:1px solid var(--line);background:none;border-radius:6px;padding:3px 9px;
+    color:var(--muted);cursor:pointer;white-space:nowrap}
+  .gw:hover{border-color:var(--muted);color:var(--text)}
+  .gw.stop{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+
+  /* detail */
+  .detail{border:1px solid var(--border);border-radius:11px;background:var(--raised);
+    padding:14px;position:sticky;top:16px}
+  .detail h3{font-family:var(--font-mono);font-size:14px;display:flex;align-items:center;gap:8px}
+  .detail .sub{font-size:12px;color:var(--muted);margin:3px 0 12px}
+  .detail .block{border-top:1px solid var(--border-soft);padding:10px 0}
+  .detail .block:last-child{padding-bottom:0}
+  .detail .bl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0}
+  .kv span:first-child{color:var(--muted)}
+  .kv .mono{font-size:11.5px}
+  .sess{font-size:12px;padding:5px 0;display:flex;gap:8px;align-items:baseline}
+  .sess .src{font-family:var(--font-mono);font-size:10px;padding:1px 5px;border-radius:4px;
+    background:var(--border-soft);color:var(--muted);flex:none}
+  .sess .src.dm{background:var(--accent-bg);color:var(--accent)}
+  .dactions{display:flex;gap:8px;margin-top:12px}
+  .dactions button{flex:1;font-size:12px;padding:7px;border-radius:7px;border:1px solid var(--line);
+    background:var(--surface);cursor:pointer}
+  .dactions button.primary{border-color:transparent;background:var(--accent);color:#1b1200;font-weight:500}
+  .dactions button:hover{border-color:var(--muted)}
+  .dactions button.primary:hover{filter:brightness(1.05)}
+
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);
+    background:var(--text);color:var(--ground);font-size:12.5px;padding:9px 15px;border-radius:8px;
+    opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <nav class="rail" aria-label="Navigation Hermes WebUI">
+    <div class="brand" aria-hidden="true">H</div>
+    <a href="#" title="Chat" aria-label="Chat">&#9631;</a>
+    <a href="#" title="Tâches" aria-label="Tâches">&#9202;</a>
+    <a href="#" title="Skills" aria-label="Skills">&#9670;</a>
+    <a href="#" title="Mémoire" aria-label="Mémoire">&#9634;</a>
+    <a href="#" class="on" title="Bots" aria-label="Bots" aria-current="page">&#9819;</a>
+  </nav>
+
+  <aside class="ctx">
+    <div>
+      <div class="eyebrow">Serveur</div>
+      <div class="ctx-card" style="margin-top:8px">
+        <div class="k">Hôte</div><div class="v mono">192.168.1.178</div>
+        <div class="k" style="margin-top:7px">Charge</div><div class="v">i5-2520M · 12 Go — modeste</div>
+        <div class="k" style="margin-top:7px">Modèle par défaut</div>
+        <div class="v mono">longcat-2.0:free</div>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">Légende</div>
+      <div class="legend" style="margin-top:8px">
+        <span><span class="swatch" style="background:var(--ok)"></span>Passerelle démarrée</span>
+        <span><span class="swatch" style="background:var(--idle)"></span>À la demande (arrêtée)</span>
+        <span><span class="swatch" style="background:var(--pro-edge)"></span>Branche Pro</span>
+        <span><span class="swatch" style="background:var(--perso-edge)"></span>Branche Perso</span>
+        <span><span class="swatch" style="border:1px solid var(--accent);background:var(--accent-bg)"></span>Cron de rattrapage actif</span>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow">Cloisonnement</div>
+      <div class="ctx-card" style="margin-top:8px">
+        <div class="v" style="font-size:12.5px;color:var(--muted)">Aucun lien direct Pro&nbsp;/&nbsp;Perso. Le changement de bot dans cette UI ne doit pas faire fuiter de contexte entre branches.</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="head">
+      <h1>Bots</h1>
+      <span class="chip">18 profils</span>
+      <span class="chip">.178</span>
+    </div>
+    <p class="note"><b>Maquette</b> — disposition proposée pour un onglet « Bots » dans Hermes WebUI. Données d'exemple d'après le vault (<span class="mono">infra/hermes-bots-hierarchie.md</span>). Aucune connexion live.</p>
+
+    <div class="tiles">
+      <div class="tile"><div class="l">Passerelles actives</div><div class="n">5<small>/ 18</small></div><div class="s">permanentes : pilote, managers, merlin</div></div>
+      <div class="tile"><div class="l">Sessions bots en cours</div><div class="n">4</div><div class="s">tous profils confondus</div></div>
+      <div class="tile"><div class="l">Cloisonnement Pro / Perso</div><div class="n" style="font-size:15px;font-family:var(--font-ui)">Actif</div><div class="s good">aucune passerelle croisée</div></div>
+      <div class="tile"><div class="l">Mesh message_agent</div><div class="n" style="font-size:15px;font-family:var(--font-ui)">Mitigé</div><div class="s">cron de rattrapage · 10&nbsp;min</div></div>
+    </div>
+
+    <div class="layout">
+      <div class="tree">
+        <div class="grouplabel">Pilote du royaume</div>
+        <div class="pilote-row" id="grp-pilote"></div>
+
+        <div class="grouplabel">Conseil <span class="tag">hors chaîne d'exécution</span></div>
+        <div class="aside-row" id="grp-aside"></div>
+
+        <div class="grouplabel">Branche Pro</div>
+        <div class="branch pro">
+          <div class="bhead"><span class="dot up"></span><span class="mono" style="font-size:12.5px;font-weight:500">lancelot</span>
+            <span style="color:var(--muted);font-size:12.5px">Manager Pro — Orchestrateur</span>
+            <span class="mtag pro">8 bots</span></div>
+          <div id="grp-pro"></div>
+        </div>
+
+        <div class="grouplabel">Branche Perso</div>
+        <div class="branch perso">
+          <div class="bhead"><span class="dot up"></span><span class="mono" style="font-size:12.5px;font-weight:500">guenievre</span>
+            <span style="color:var(--muted);font-size:12.5px">Manager de la branche Perso</span>
+            <span class="mtag perso">4 bots</span></div>
+          <div id="grp-perso"></div>
+        </div>
+
+        <div class="grouplabel">Profil interne</div>
+        <div class="branch"><div id="grp-default"></div></div>
+      </div>
+
+      <div class="detail" id="detail" aria-live="polite"></div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const BOTS=[
+  {id:"roi-arthur",role:"Roi Arthur — Pilote du royaume",grp:"pilote",up:true,cron:true,sessions:1,last:"il y a 3 min",
+   detail:{scope:"Supervise les branches Pro et Perso. Ne fait pas le travail : identifie la branche et délègue au manager.",
+     platforms:"Telegram (dédié)",mem:"infra/hermes-bots-memoire/ — n/a (pilote)",job:"ping-rattrapage-roi-arthur · 10m",
+     recent:[["webui","cadrage nouvelle demande client"],["telegram","« fais le point infra »"],["dm","→ lancelot : répartir l'audit"]]}},
+  {id:"merlin",role:"Compagnon d'Idéation — rattaché au Pilote",grp:"aside",up:true,cron:true,sessions:1,last:"il y a 22 min",
+   detail:{scope:"Échange d'idéation avec Ludo. N'exécute rien, ne supervise personne, n'écrit pas dans le vault. Remet une consigne d'intégration au Pilote.",
+     platforms:"Telegram (dédié)",mem:"infra/hermes-bots-memoire/merlin/",job:"ping-rattrapage-merlin · 10m",
+     recent:[["webui","idée : cockpit bots dans WebUI"],["dm","→ roi-arthur : consigne d'intégration"]]}},
+
+  {id:"pere-blaise",role:"Gardien du Vault",grp:"pro",tag:"intendance",up:false,cron:false,sessions:0,last:"il y a 2 j",
+   detail:{scope:"Gère le vault Obsidian et l'infra maison (.178 / .72, projets). Sert les deux branches.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/pere-blaise/",job:"—",
+     recent:[["telegram","MAJ note services.md"]]}},
+  {id:"bohorth",role:"Sentinelle Infra",grp:"pro",up:false,cron:false,sessions:0,last:"il y a 5 j",
+   detail:{scope:"Supervision des infrastructures clients de l'ESN : état serveurs, alertes réseau, incidents.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/bohorth/",job:"—",recent:[]}},
+  {id:"perceval",role:"Ordonnateur Code — gère Yvain et Gauvain",grp:"pro",up:false,cron:false,sessions:0,last:"il y a 1 j",
+   detail:{scope:"Assigne et consolide les travaux de Yvain et Gauvain. Les tâches de Lancelot passent par lui.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/perceval/",job:"—",
+     recent:[["dm","→ yvain : scaffold module import"]]}},
+  {id:"yvain",role:"VibeCoder Antigravity",grp:"pro",child:true,up:false,cron:false,sessions:0,last:"il y a 1 j",
+   detail:{scope:"Développement rapide avec Antigravity CLI (Gemini). Sous la responsabilité de Perceval.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/yvain/",job:"—",recent:[]}},
+  {id:"gauvain",role:"VibeCoder Claude Code",grp:"pro",child:true,up:false,cron:false,sessions:0,last:"il y a 4 j",
+   detail:{scope:"Développement itératif avec Claude Code CLI (Sonnet). Sous la responsabilité de Perceval.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/gauvain/",job:"—",recent:[]}},
+  {id:"venec",role:"Ombre Vigilante",grp:"pro",up:false,cron:false,sessions:0,last:"il y a 6 h",
+   detail:{scope:"Veille CVE et actualités infra/réseau pertinentes pour les clients de l'ESN.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/venec/",job:"—",recent:[["telegram","digest CVE hebdo"]]}},
+  {id:"maitre-darmes",role:"Pédagogue Procédures",grp:"pro",tag:"intendance",up:false,cron:false,sessions:0,last:"il y a 3 j",
+   detail:{scope:"Documentation, mise à jour de procédures internes, comptes-rendus pour la hiérarchie. Sert les deux branches.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/maitre-darmes/",job:"—",recent:[]}},
+  {id:"leodagan",role:"Rapporteur du Roi",grp:"pro",tag:"intendance",up:false,cron:false,sessions:0,last:"il y a 3 j",
+   detail:{scope:"Rapports d'activité périodiques consolidés à partir des autres bots pro.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/leodagan/",job:"—",recent:[]}},
+  {id:"le-repurgateur",role:"Inquisiteur Qualité",grp:"pro",up:false,cron:false,sessions:0,last:"il y a 2 j",
+   detail:{scope:"Valide ou rejette les livrables de Yvain / Gauvain avant remontée. Aucun compromis.",
+     platforms:"— (à la demande)",mem:"infra/hermes-bots-memoire/le-repurgateur/",job:"—",recent:[]}},
+
+  {id:"angharad",role:"La Vigie du Foyer — domotique",grp:"perso",up:false,cron:false,sessions:0,last:"il y a 12 h",
+   detail:{scope:"Supervision de la maison connectée via Home Assistant — états, alertes, synthèse.",
+     platforms:"— (à la demande)",mem:"perso/angharad/",job:"—",recent:[["telegram","résumé conso énergie"]]}},
+  {id:"sefriane",role:"L'Or et le Bon Sens — finances",grp:"perso",up:false,cron:false,sessions:0,last:"il y a 8 j",
+   detail:{scope:"Suivi budget personnel, rappels d'échéances. Aucune donnée bancaire en clair — tendances uniquement.",
+     platforms:"— (à la demande)",mem:"perso/sefriane/",job:"—",recent:[]}},
+  {id:"demetra",role:"Agenda, tâches, routines",grp:"perso",up:false,cron:false,sessions:0,last:"il y a 1 j",
+   detail:{scope:"Agenda personnel, tâches et rappels du quotidien, séparé du contexte professionnel.",
+     platforms:"— (à la demande)",mem:"perso/demetra/",job:"—",recent:[]}},
+  {id:"meghana",role:"Veille et apprentissage",grp:"perso",up:false,cron:false,sessions:0,last:"il y a 2 j",
+   detail:{scope:"Digest périodique sur les sujets d'apprentissage de Ludo (IA/agents, dev, domotique).",
+     platforms:"— (à la demande)",mem:"perso/meghana/",job:"—",recent:[]}},
+
+  {id:"default",role:"Chat standard — jamais utilisé comme bot",grp:"default",up:true,cron:true,sessions:0,last:"il y a 1 h",
+   detail:{scope:"Profil interne pour les conversations directes non assignées. Porte la config Telegram historique.",
+     platforms:"Telegram",mem:"—",job:"ping-rattrapage-default · 10m",recent:[["webui","note libre"]]}},
+
+  {id:"lancelot",role:"Manager Pro — Orchestrateur",grp:"_hidden",up:true,cron:true,sessions:2,last:"il y a 1 min",
+   detail:{scope:"Reçoit une demande du Pilote, la répartit entre les 8 bots Pro, consolide avant de remonter. N'exécute jamais lui-même.",
+     platforms:"Telegram (dédié)",mem:"infra/hermes-bots-memoire/lancelot/",job:"ping-rattrapage-lancelot · 10m",
+     recent:[["webui","audit infra client — répartition"],["dm","→ pere-blaise : vérifier services.md"],["dm","← bohorth : 2 alertes réseau"]]}},
+  {id:"guenievre",role:"Manager de la branche Perso",grp:"_hidden",up:true,cron:true,sessions:0,last:"il y a 40 min",
+   detail:{scope:"Point d'entrée unique de la vie personnelle ; oriente vers Angharad / Séfriane / Demetra / Meghana.",
+     platforms:"Telegram (dédié)",mem:"perso/guenievre/",job:"ping-rattrapage-guenievre · 10m",recent:[["telegram","« rappelle-moi jeudi »"]]}}
+];
+
+const byId=Object.fromEntries(BOTS.map(b=>[b.id,b]));
+const state={sel:"lancelot"};
+
+function rowHTML(b){
+  const cls=["row"];if(b.child)cls.push("child");if(b.id===state.sel)cls.push("sel");
+  const cron=b.cron?'<span class="pill cron">rattrapage 10m</span>':'<span class="pill muted2">cron —</span>';
+  const cnt=b.sessions>0?`<span class="pill count">${b.sessions} session${b.sessions>1?"s":""}</span>`:"";
+  const gw=b.up?'<button class="gw stop" data-gw="'+b.id+'">Arrêter</button>'
+               :'<button class="gw" data-gw="'+b.id+'">Démarrer</button>';
+  const tag=b.tag?` <span class="pill" style="border-color:var(--line)">${b.tag}</span>`:"";
+  return `<button class="${cls.join(' ')}" data-sel="${b.id}">
+    <span class="dot ${b.up?'up':''}"></span>
+    <span class="name">${b.id}</span>
+    <span class="role">${b.role}${tag}</span>
+    <span class="meta"><span class="pill">${b.last}</span>${cnt}${cron}${gw}</span>
+  </button>`;
+}
+function fill(id,list){document.getElementById(id).innerHTML=list.map(rowHTML).join("")}
+
+function renderTree(){
+  fill("grp-pilote",BOTS.filter(b=>b.grp==="pilote"));
+  fill("grp-aside",BOTS.filter(b=>b.grp==="aside"));
+  fill("grp-pro",BOTS.filter(b=>b.grp==="pro"));
+  fill("grp-perso",BOTS.filter(b=>b.grp==="perso"));
+  fill("grp-default",BOTS.filter(b=>b.grp==="default"));
+}
+
+function renderDetail(){
+  const b=byId[state.sel],d=b.detail;
+  const rec=d.recent.length
+    ? d.recent.map(r=>`<div class="sess"><span class="src ${r[0]==='dm'?'dm':''}">${r[0]==='dm'?'message_agent':r[0]}</span><span>${r[1]}</span></div>`).join("")
+    : '<div class="sess" style="color:var(--faint)">aucune session récente</div>';
+  document.getElementById("detail").innerHTML=`
+    <h3><span class="dot ${b.up?'up':''}"></span>${b.id}</h3>
+    <div class="sub">${b.role}</div>
+    <div class="block"><div class="bl">Rôle</div><div style="font-size:12.5px;color:var(--muted)">${d.scope}</div></div>
+    <div class="block"><div class="bl">Passerelle</div>
+      <div class="kv"><span>État</span><span>${b.up?'<span style="color:var(--ok)">démarrée</span>':'arrêtée (à la demande)'}</span></div>
+      <div class="kv"><span>Plateformes</span><span class="mono">${d.platforms}</span></div>
+      <div class="kv"><span>Modèle</span><span class="mono">longcat-2.0:free</span></div>
+    </div>
+    <div class="block"><div class="bl">Cron de rattrapage</div>
+      <div class="kv"><span>Job</span><span class="mono">${d.job}</span></div>
+    </div>
+    <div class="block"><div class="bl">Mémoire (vault)</div>
+      <div class="kv"><span class="mono" style="color:var(--muted)">${d.mem}</span></div>
+    </div>
+    <div class="block"><div class="bl">Sessions récentes</div>${rec}</div>
+    <div class="dactions">
+      <button class="primary" data-act="open">Ouvrir le fil</button>
+      <button data-act="gw">${b.up?'Arrêter la passerelle':'Démarrer la passerelle'}</button>
+    </div>`;
+}
+
+let toastT;
+function toast(msg){
+  const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200);
+}
+function toggleGw(id){
+  const b=byId[id];b.up=!b.up;
+  if(b.up&&b.sessions===0)b.last="à l'instant";
+  renderTree();if(state.sel===id)renderDetail();
+  toast(`${id} — passerelle ${b.up?'démarrée':'arrêtée'} (simulation)`);
+}
+
+document.addEventListener("click",e=>{
+  const gw=e.target.closest("[data-gw]");
+  if(gw){e.stopPropagation();toggleGw(gw.dataset.gw);return;}
+  const sel=e.target.closest("[data-sel]");
+  if(sel){state.sel=sel.dataset.sel;renderTree();renderDetail();return;}
+  const act=e.target.closest("[data-act]");
+  if(act){
+    if(act.dataset.act==="gw")toggleGw(state.sel);
+    else toast(`${state.sel} — ouverture du fil (maquette)`);
+  }
+});
+
+renderTree();renderDetail();
+</script>

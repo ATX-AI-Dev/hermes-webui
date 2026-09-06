@@ -1,7 +1,7 @@
 # Divergences du fork `ATX-AI-Dev/hermes-webui`
 
 Base amont : `nesquena/hermes-webui` @ `e168b67e` (`exp-v0.52.264`, 25/08/2026).
-Chaque entrée = un écart à rebaser. Voir `PLAN-palier-B.md` pour le contexte, et la section
+Chaque entrée = un écart à rebaser. Voir `docs/fork/PLAN-palier-B.md` pour le contexte, et la section
 **Surface de conflit avec l'amont** en fin de fichier pour la procédure de rebase et le
 garde-fou à lancer après chaque mise à jour amont.
 
@@ -118,7 +118,7 @@ l'email noreply GitHub pour passer GH007). `.178` à repointer sur ce remote (vo
 **Objectif** : rendre visible et lisible le mesh `message_agent`, aujourd'hui invisible dans
 WebUI (session canonique « Bot Chat » masquée, `hidden=1`).
 
-### Recon préalable (voir PLAN-palier-B.md §1)
+### Recon préalable (voir docs/fork/PLAN-palier-B.md §1)
 
 Schéma réel vérifié sur `.178` : `sessions.title='Bot Chat'`, `hidden=1`, `profile_name`.
 `messages` : `role, content, tool_call_id, tool_calls (JSON), tool_name, timestamp (epoch)`.
@@ -206,7 +206,7 @@ Rendu dédié des tours de relais **entrants** (`_relayInboundMatch`, texte
 
 ### Validé
 
-Déployé et vérifié sur `.178` — voir `PLAN-B4-fusion-conversation.md` pour le journal des
+Déployé et vérifié sur `.178` — voir `docs/fork/PLAN-B4-fusion-conversation.md` pour le journal des
 validations live (import multi-bots, tours réels, bots à la demande).
 
 ---
@@ -223,7 +223,7 @@ hash côté front), aperçu du dernier message, polling 15 s du panneau.
 ### Itération 2 (commits `b36b9832` → `d6679839`)
 
 Demandée par Ludo après avoir vu l'itération 1 en prod. Feuille de route d'origine :
-`PROMPT-bots-panel-ux-rework.md`.
+`docs/fork/PROMPT-bots-panel-ux-rework.md`.
 
 | # | Changement | Fichiers |
 | :-- | :-- | :-- |
