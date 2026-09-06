@@ -432,6 +432,32 @@ def release_bot_chat_lease(lease) -> None:
         logger.debug("bot_mesh: failed to release active-session lease", exc_info=True)
 
 
+def _channel_map():
+    """Carte des canaux autorisés, ou ``None`` si indisponible.
+
+    Isolé ici pour que la lecture d'un fil ne dépende jamais de la présence du
+    module de canaux : sans carte, chaque relais sort avec ``channel_ok: None``
+    et le fil s'affiche exactement comme avant.
+    """
+    try:
+        from api.bot_channels import load_channels
+        return load_channels()
+    except Exception:
+        logger.debug("bot_mesh: channel map unavailable", exc_info=True)
+        return None
+
+
+def _channel_verdict(sender: str, target, channel_map) -> dict:
+    if channel_map is None:
+        return {"channel_ok": None, "channel_target": target}
+    try:
+        from api.bot_channels import classify_relay
+        return classify_relay(sender, target, channel_map)
+    except Exception:
+        logger.debug("bot_mesh: channel classification failed", exc_info=True)
+        return {"channel_ok": None, "channel_target": target}
+
+
 def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
     """Return ``{"exists", "session_id", "turns": [...]}``. Read-only, best-effort.
 
@@ -466,6 +492,7 @@ def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
 
     rows = list(reversed(rows))  # DESC fetch -> chronological order
     pending_relay: dict[str, dict] = {}  # tool_call_id -> relay call awaiting its ack row
+    channel_map = _channel_map()  # chargée une fois, pas une fois par relais
 
     for r in rows:
         role = r["role"]
@@ -490,6 +517,11 @@ def read_bot_chat_transcript(profile: str, *, limit: int = 60) -> dict:
                     "ok": ok,
                     "error": error,
                     "timestamp": ts or relay.get("timestamp"),
+                    # Ce relais respecte-t-il les canaux que Ludo a spécifiés ?
+                    # True / False / None (« on ne sait pas »). DÉTECTION seule :
+                    # l'agent, lui, accepte n'importe quelle cible du roster —
+                    # voir api/bot_channels.py.
+                    **_channel_verdict(profile, relay.get("target"), channel_map),
                 })
             else:
                 content = (r["content"] or "").strip()

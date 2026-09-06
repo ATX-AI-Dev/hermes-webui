@@ -182,3 +182,17 @@
 .bots-rail-badge { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px;
   padding: 0 4px; border-radius: 999px; background: var(--link); color: #fff; font-size: 9px;
   font-weight: 600; line-height: 15px; text-align: center; pointer-events: none; }
+
+/* Audit des canaux inter-bots — détection seule (api/bot_channels.py). Le ton
+   est délibérément sobre : c'est une mesure, pas une alarme. */
+.bots-audit-btn { margin-left: auto; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); border-radius: 6px; padding: 2px 8px; font-size: 10.5px; cursor: pointer; }
+.bots-audit-btn:hover { border-color: var(--muted); color: var(--text); }
+.bots-audit:empty { display: none; }
+.bots-audit { padding: 6px 10px 8px; font-size: 11px; color: var(--muted);
+  border-bottom: 1px solid var(--border); }
+.bots-audit-head { color: var(--text); margin-bottom: 4px; }
+.bots-audit-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.bots-audit-problem { color: #c0392b; margin-bottom: 4px; }
+.bots-relay-offspec { border: 1px solid #c0392b; color: #c0392b; border-radius: 999px;
+  padding: 0 6px; font-size: 9.5px; white-space: nowrap; }

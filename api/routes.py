@@ -14765,6 +14765,11 @@ def handle_get(handler, parsed) -> bool:
         return handle_get_overview(handler, parsed)
 
     # ── Bot avatar (GET) — user-uploaded profile picture, iteration 2 ──
+    # ── Inter-bot channel audit (GET) — detection only, see api/bot_channels.py ──
+    if parsed.path == "/api/bot-channels/audit":
+        from api.bot_channels import handle_get_audit
+        return handle_get_audit(handler, parsed)
+
     if parsed.path == "/api/bots/avatar":
         from api.bot_customization import handle_get_avatar
         return handle_get_avatar(handler, parsed)

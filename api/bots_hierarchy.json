@@ -27,5 +27,30 @@
     "demetra":        { "branch": "perso", "parent": "guenievre", "role": "Agenda, tâches, routines", "order": 33, "emoji": "📅", "color": "#c04fa0" },
     "meghana":        { "branch": "perso", "parent": "guenievre", "role": "Veille et apprentissage", "order": 34, "emoji": "🔮", "color": "#7c5fc0" },
     "default":        { "branch": "interne", "role": "Chat standard — jamais utilisé comme bot", "order": 40, "permanent_gateway": true, "emoji": "💬", "color": "#d9b23c" }
+  },
+  "_channels_comment": "Canaux de communication directe autorisés entre bots — spécification de Ludo du 03/09/2026 (vault : infra/hermes-communication-paths.md), amendée le 05/09/2026. Une arête listée d'un côté vaut des deux (bidirectionnel), et la carte se vérifie elle-même : les deux côtés doivent se citer. 26 arêtes bot-à-bot ici ; les 30 canaux du vault incluent les 4 canaux Ludo<->bot, qui ne passent pas par message_agent. DÉTECTION SEULE — rien ici n'empêche un envoi, l'agent valide les cibles contre le roster complet (voir docs/fork/PLAN-ecarts-de-fond.md, écart E1).",
+  "channels": {
+    "wildcard_senders": {
+      "merlin": "Règle assouplie le 05/09/2026 : Merlin peut contacter directement n'importe quel bot Pro ou Perso si l'idéation le justifie."
+    },
+    "allowed": {
+      "roi-arthur":     ["merlin", "lancelot", "guenievre"],
+      "merlin":         ["roi-arthur", "lancelot", "guenievre", "pere-blaise", "maitre-darmes", "venec"],
+      "lancelot":       ["roi-arthur", "merlin", "venec", "bohorth", "perceval", "pere-blaise", "maitre-darmes", "leodagan"],
+      "guenievre":      ["roi-arthur", "merlin", "angharad", "sefriane", "demetra", "meghana", "pere-blaise", "maitre-darmes", "leodagan"],
+      "perceval":       ["lancelot", "yvain", "gauvain", "le-repurgateur"],
+      "le-repurgateur": ["perceval"],
+      "pere-blaise":    ["maitre-darmes", "lancelot", "merlin", "guenievre"],
+      "maitre-darmes":  ["pere-blaise", "lancelot", "merlin", "guenievre"],
+      "leodagan":       ["lancelot", "guenievre"],
+      "yvain":          ["gauvain", "perceval"],
+      "gauvain":        ["yvain", "perceval"],
+      "venec":          ["merlin", "lancelot"],
+      "bohorth":        ["lancelot"],
+      "angharad":       ["guenievre"],
+      "sefriane":       ["guenievre"],
+      "demetra":        ["guenievre"],
+      "meghana":        ["guenievre"]
+    }
   }
 }

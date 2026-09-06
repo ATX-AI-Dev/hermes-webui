@@ -146,6 +146,51 @@ function _setBotsRailBadge(count) {
   });
 }
 
+// ── Audit des canaux inter-bots ─────────────────────────────────────────────
+// Résultat du dernier audit, conservé côté module : le panneau se re-rend
+// toutes les 15 s, un résultat posé dans le DOM disparaîtrait au tick suivant.
+// `null` = jamais lancé (la zone reste vide).
+let _botsAudit = null;
+
+function _botsAuditHTML() {
+  if (!_botsAudit) return '';
+  if (_botsAudit.loading) return `<span class="bots-audit-empty">${esc(t('bots_channel_auditing'))}</span>`;
+  if (_botsAudit.error) return `<span class="bots-audit-empty">${esc(_botsAudit.error)}</span>`;
+  const a = _botsAudit.data || {};
+  const problems = (a.map_problems || []).length
+    ? `<div class="bots-audit-problem">${esc(t('bots_channel_map_broken'))} ${esc((a.map_problems || []).join(' · '))}</div>`
+    : '';
+  if (!a.violation_count) {
+    return `${problems}<span class="bots-audit-empty">${esc(t('bots_channel_clean'))}</span>`;
+  }
+  // Une ligne par arête fautive, la plus fréquente en tête : ce qu'on veut
+  // savoir, c'est QUI sort de la spec, pas combien de fois au total.
+  const byEdge = new Map();
+  (a.violations || []).forEach(v => {
+    const key = `${v.sender} → ${v.target}`;
+    byEdge.set(key, (byEdge.get(key) || 0) + 1);
+  });
+  const rows = [...byEdge.entries()].sort((x, y) => y[1] - x[1]).slice(0, 12)
+    .map(([edge, n]) => `<div class="bots-audit-row"><span>${esc(edge)}</span><strong>${n}</strong></div>`)
+    .join('');
+  return `${problems}<div class="bots-audit-head">${esc(t('bots_channel_offspec_count'))
+    .replace('{n}', a.violation_count).replace('{d}', a.days)}</div>${rows}`;
+}
+
+async function _botsRunChannelAudit() {
+  _botsAudit = { loading: true };
+  const box = document.querySelector('#botsPanel .bots-audit');
+  if (box) box.innerHTML = _botsAuditHTML();
+  try {
+    const data = await api('/api/bot-channels/audit?days=7', { timeoutToast: false });
+    _botsAudit = { data };
+  } catch (e) {
+    _botsAudit = { error: t('bots_action_failed') + ': ' + String((e && e.message) || e) };
+  }
+  const after = document.querySelector('#botsPanel .bots-audit');
+  if (after) after.innerHTML = _botsAuditHTML();
+}
+
 // Marque la conversation d'un bot comme lue jusqu'au compte connu du dernier
 // rendu. Best-effort : si l'appel échoue, le badge reparaîtra au prochain
 // passage -- c'est le bon sens de l'erreur (mieux vaut un badge en trop qu'un
@@ -206,7 +251,9 @@ async function loadBotsPanel(fresh) {
     let html = `<div class="bots-summary">
       <span><strong>${c.gateways_up || 0}</strong> / ${c.total || bots.length} ${esc(t('bots_summary_gateways'))}</span>
       <span><strong>${c.active_sessions || 0}</strong> ${esc(t('bots_summary_sessions'))}</span>
-    </div>`;
+      <button class="bots-audit-btn" data-act="audit">${esc(t('bots_channel_audit'))}</button>
+    </div>
+    <div class="bots-audit">${_botsAuditHTML()}</div>`;
 
     const activeProfile = (typeof S !== 'undefined' && S && S.activeProfile) ? S.activeProfile : '';
 
@@ -321,6 +368,9 @@ function _botsRenderChatTurns(turns) {
           <span class="bots-relay-arrow" aria-hidden="true">⇄</span>
           <span class="bots-relay-target">${esc(_botsRelayLabel(turn.target))}</span>
           <span class="bots-relay-status">${esc(status)}</span>
+          ${turn.channel_ok === false
+            ? `<span class="bots-relay-offspec" title="${esc(t('bots_channel_offspec_hint'))}">${esc(t('bots_channel_offspec'))}</span>`
+            : ''}
           ${when}
         </div>
         ${turn.message ? `<div class="bots-relay-msg">${esc(turn.message)}</div>` : ''}
@@ -560,6 +610,12 @@ async function _botsOnClick(ev) {
   // here and returns, so it never falls through to the card's "open this
   // conversation" branch below. One delegated listener, no event-propagation
   // juggling between nested handlers.
+  // L'audit des canaux est le seul bouton du panneau qui ne vise pas un bot
+  // précis : il est traité avant le sélecteur ci-dessous, qui exige data-bot.
+  if (ev.target.closest('button[data-act="audit"]')) {
+    await _botsRunChannelAudit();
+    return;
+  }
   const btn = ev.target.closest('button[data-bot][data-act]');
   if (!btn) {
     const card = ev.target.closest('.bots-row[data-card-act]');
