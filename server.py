@@ -108,6 +108,19 @@ from api.helpers import (
     _CLIENT_DISCONNECT_ERRORS,
 )
 from api.profiles import set_request_profile, clear_request_profile
+
+
+def _fork_request_profile(handler):
+    """Profil de la requete : en-tete du fork, sinon cookie amont.
+
+    Import a l'interieur pour que l'absence du module du fork ne casse jamais
+    le serveur : on retombe alors exactement sur le comportement amont.
+    """
+    try:
+        from api.pane_profile import request_profile
+        return request_profile(handler)
+    except Exception:
+        return get_profile_cookie(handler)
 from api.routes import handle_delete, handle_get, handle_patch, handle_post, handle_put, apply_cors_preflight_headers
 from api.startup import auto_install_agent_deps, fix_credential_permissions
 from api.updates import WEBUI_VERSION
@@ -373,7 +386,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         self._req_t0 = time.time(); reset_trusted_auth_request_state(self)
-        cookie_profile = get_profile_cookie(self)
+        # Fork ATX-AI-Dev : un panneau epingle sur un autre bot porte son profil
+        # dans l'en-tete X-Hermes-Profile (valeur signee, voir api/pane_profile.py) ;
+        # sans en-tete, c'est le cookie de l'onglet, comportement amont inchange.
+        cookie_profile = _fork_request_profile(self)
         if cookie_profile:
             set_request_profile(cookie_profile)
         try:
@@ -398,7 +414,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_write(self, route_func) -> None:
         self._req_t0 = time.time(); reset_trusted_auth_request_state(self)
-        cookie_profile = get_profile_cookie(self)
+        # Fork ATX-AI-Dev : un panneau epingle sur un autre bot porte son profil
+        # dans l'en-tete X-Hermes-Profile (valeur signee, voir api/pane_profile.py) ;
+        # sans en-tete, c'est le cookie de l'onglet, comportement amont inchange.
+        cookie_profile = _fork_request_profile(self)
         if cookie_profile:
             set_request_profile(cookie_profile)
         try:

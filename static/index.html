@@ -442,6 +442,9 @@
         <button class="update-btn update-primary" id="btnStaleClientRefresh" type="button" onclick="hardRefreshWebUIClient()" data-i18n="update_hard_refresh_now">Hard refresh now</button>
       </div>
     </div>
+    <!-- Fork ATX-AI-Dev (C2) : conversation d'un second bot, épinglée à côté.
+         Voir static/bot_pane.js et api/pane_profile.py. -->
+    <aside id="botPane" class="bot-pane" hidden aria-label="Pinned bot conversation"></aside>
     <div id="mainChat" class="main-view">
     <div class="messages-shell">
       <button id="jumpToSessionStartBtn" class="session-jump-btn session-jump-btn--start" aria-label="Jump to beginning of session" data-i18n-aria-label="session_jump_start_label" data-i18n-title="session_jump_start_label" onclick="jumpToSessionStart()" style="display:none"><span aria-hidden="true">↑</span><span data-i18n="session_jump_start">Start</span></button>
@@ -1798,6 +1801,7 @@
 <script src="static/extension_settings.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/agent_drift.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/bots_panel.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/bot_pane.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/onboarding.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/boot.js?v=__WEBUI_VERSION__" defer></script>

@@ -32,6 +32,7 @@ const SHELL_ASSETS = [
   './static/sessions.js' + VQ,
   './static/agent_drift.js' + VQ,   // fork-only, see FORK-CHANGES.md
   './static/bots_panel.js' + VQ,    // fork-only, see FORK-CHANGES.md
+  './static/bot_pane.js' + VQ,      // fork-only, see FORK-CHANGES.md
   './static/panels.js' + VQ,
   './static/commands.js' + VQ,
   './static/icons.js' + VQ,

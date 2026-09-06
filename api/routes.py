@@ -16785,6 +16785,11 @@ def handle_post(handler, parsed) -> bool:
         from api.bot_customization import handle_post_customization
         return handle_post_customization(handler, body)
 
+    # ── Pinned-pane profile token (POST) — see api/pane_profile.py ──
+    if parsed.path == "/api/profile/pane-token":
+        from api.pane_profile import handle_post_pane_token
+        return handle_post_pane_token(handler, body)
+
     # ── Bot unread marker (POST) — see api/bot_seen.py ──
     if parsed.path == "/api/bots/seen":
         from api.bot_seen import handle_post_seen

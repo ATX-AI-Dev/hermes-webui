@@ -280,6 +280,12 @@ async function loadBotsPanel(fresh) {
       const chatBtn = bot.has_bot_chat
         ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="chat" aria-expanded="false">${esc(t('bots_thread'))}</button>`
         : '';
+      // C2 : garder ce bot ouvert A COTE de la conversation principale. Réservé
+      // aux bots qui ont une Bot Chat — sans session à continuer, le panneau
+      // n'aurait rien à afficher ni où écrire.
+      const pinBtn = bot.has_bot_chat
+        ? `<button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="pin">${esc(t('bot_pane_pin'))}</button>`
+        : '';
       // B4 (PLAN-B4-fusion-conversation.md): "Continuer" imports the bot's
       // real Bot Chat session into WebUI and opens it, so replying continues
       // THAT session (message_agent included) instead of a fresh WebUI-only
@@ -323,6 +329,7 @@ async function loadBotsPanel(fresh) {
         ${perm || sessions ? `<span class="bots-details-meta">${perm}${sessions}</span>` : ''}
         <span class="bots-actions">
           ${chatBtn}
+          ${pinBtn}
           ${gwBtn}
           <button class="bots-btn bots-btn--ghost" data-bot="${esc(bot.id)}" data-act="customize"
             aria-expanded="false">${esc(t('bots_customize'))}</button>
@@ -626,6 +633,10 @@ async function _botsOnClick(ev) {
   const act = btn.dataset.act;
   if (act === 'details') {
     _botsToggleDetails(bot, btn);
+    return;
+  }
+  if (act === 'pin') {
+    if (typeof pinBotPane === 'function') await pinBotPane(bot);
     return;
   }
   if (act === 'customize') {
